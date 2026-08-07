@@ -579,3 +579,46 @@ body::after {
 .rbtn:hover { color: var(--phos); border-color: var(--phos-dim); background: rgba(53,224,139,.07); }
 .rbtn.ghost { border-color: transparent; color: var(--ink-faint); font-size: 13px; padding: 2px 7px; }
 .rbtn.ghost:hover { color: var(--red); background: rgba(255,59,47,.08); }
+
+/* stick key legends */
+.stick .keys {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-family: var(--mono);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  color: rgba(53, 224, 139, .09);
+  pointer-events: none;
+  user-select: none;
+}
+.stick .tag b {
+  color: var(--phos);
+  font-weight: 600;
+  opacity: .85;
+}
+
+/* operator-recorded MAC + opaque browser id */
+.rmac {
+  flex: none;
+  width: 15ch;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--amber);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .02em;
+  padding: 3px 6px;
+  outline: none;
+}
+.rmac.unset { color: var(--ink-faint); }
+.rmac::placeholder { color: var(--ink-faint); opacity: .55; }
+.rmac:hover { border-color: var(--rule-hot); }
+.rmac:focus { border-color: var(--amber-dim); background: rgba(255,176,32,.05); }
+.rmac.bad { border-color: var(--red); color: var(--red); background: rgba(255,59,47,.07); }
+
+.rid { cursor: pointer; transition: color .14s var(--bez); }
+.rid:hover { color: var(--phos); }

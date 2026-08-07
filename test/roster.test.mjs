@@ -94,3 +94,64 @@ test('missing storage entirely does not throw', () => {
   assert.deepEqual(r.list(), []);
   assert.doesNotThrow(() => r.remember({ id: 'a' }, 1));
 });
+
+/* ── MAC handling ──────────────────────────────────────────────────── */
+
+import { normalizeMac } from '../js/roster.js';
+
+test('normalizes MACs from every format an operator might paste', () => {
+  const want = 'ac:a7:04:1f:53:9e';
+  for (const input of [
+    'ac:a7:04:1f:53:9e',
+    'AC:A7:04:1F:53:9E',
+    'ac-a7-04-1f-53-9e',
+    'aca7.041f.539e',
+    'aca7041f539e',
+    '  AC A7 04 1F 53 9E  ',
+  ]) {
+    assert.equal(normalizeMac(input), want, `input ${JSON.stringify(input)}`);
+  }
+});
+
+test('rejects anything that is not twelve hex digits', () => {
+  for (const bad of ['', null, undefined, 'nope', 'ac:a7:04:1f:53', 'ac:a7:04:1f:53:9e:ff', 'zz:zz:zz:zz:zz:zz']) {
+    assert.equal(normalizeMac(bad), null, `input ${JSON.stringify(bad)}`);
+  }
+});
+
+test('stores a normalized MAC against a drone', () => {
+  const r = new Roster(fakeStorage(), 'k');
+  r.remember({ id: 'a' }, 1);
+  assert.ok(r.setMac('a', 'AC-A7-04-1F-53-9E'));
+  assert.equal(r.get('a').mac, 'ac:a7:04:1f:53:9e');
+});
+
+test('rejects a malformed MAC without clobbering the stored one', () => {
+  const r = new Roster(fakeStorage(), 'k');
+  r.remember({ id: 'a' }, 1);
+  r.setMac('a', 'ac:a7:04:1f:53:9e');
+  assert.equal(r.setMac('a', 'garbage'), null);
+  assert.equal(r.get('a').mac, 'ac:a7:04:1f:53:9e', 'previous MAC survives a bad edit');
+});
+
+test('an empty MAC clears the field', () => {
+  const r = new Roster(fakeStorage(), 'k');
+  r.remember({ id: 'a' }, 1);
+  r.setMac('a', 'ac:a7:04:1f:53:9e');
+  assert.ok(r.setMac('a', '   '));
+  assert.equal(r.get('a').mac, '');
+});
+
+test('setMac on an unknown drone is a no-op', () => {
+  assert.equal(new Roster(fakeStorage(), 'k').setMac('nope', 'ac:a7:04:1f:53:9e'), null);
+});
+
+test('finds a drone by MAC in any input format', () => {
+  const r = new Roster(fakeStorage(), 'k');
+  r.remember({ id: 'a', name: 'pyDrone' }, 1);
+  r.remember({ id: 'b', name: 'pyDrone' }, 2);
+  r.setMac('b', 'ac:a7:04:1f:53:9e');
+  assert.equal(r.byMac('ACA7041F539E').id, 'b');
+  assert.equal(r.byMac('ac:a7:04:1f:53:9f'), null);
+  assert.equal(r.byMac('junk'), null);
+});

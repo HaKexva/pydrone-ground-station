@@ -100,9 +100,11 @@
           </label>
           <div class="roster" id="roster"></div>
           <div class="notice">
-            <strong>Several drones share the name “pyDrone”.</strong> The browser picker cannot
-            tell them apart, so pair each once, give it an alias here, and connect by alias
-            afterwards — that path skips the picker entirely.
+            <strong>Browsers cannot read a BLE MAC address.</strong> Web Bluetooth withholds it by
+            design, and on macOS the OS never exposes it at all — Chrome only hands out an opaque
+            per-profile id (the grey code, click to copy). So enter the MAC your controller shows
+            in the amber field and the roster becomes your MAC-to-drone map. Pair each drone once,
+            label it, then connect by that row — it skips the picker entirely.
           </div>
         </div>
       </section>
@@ -129,13 +131,15 @@
 
           <div class="sticks">
             <div class="stick" id="stick-left">
-              <span class="tag n">thr +</span><span class="tag s">thr −</span>
-              <span class="tag w">yaw ←</span><span class="tag e">yaw →</span>
+              <span class="keys">wasd</span>
+              <span class="tag n"><b>W</b> thr +</span><span class="tag s"><b>S</b> thr −</span>
+              <span class="tag w"><b>A</b> yaw ←</span><span class="tag e"><b>D</b> yaw →</span>
               <div class="knob"></div>
             </div>
             <div class="stick" id="stick-right">
-              <span class="tag n">pitch ↑</span><span class="tag s">pitch ↓</span>
-              <span class="tag w">roll ←</span><span class="tag e">roll →</span>
+              <span class="keys">ijkl</span>
+              <span class="tag n"><b>I</b> pitch ↑</span><span class="tag s"><b>K</b> pitch ↓</span>
+              <span class="tag w"><b>J</b> roll ←</span><span class="tag e"><b>L</b> roll →</span>
               <div class="knob"></div>
             </div>
           </div>

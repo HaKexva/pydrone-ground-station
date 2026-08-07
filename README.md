@@ -39,6 +39,23 @@ Aliases live in `localStorage`, keyed by `device.id`. That id is stable per
 browser profile but differs across machines and profiles, so the roster is
 per-browser by design — it is not synced and does not travel with the drone.
 
+### MAC addresses
+
+**A browser cannot read a BLE MAC address.** Web Bluetooth withholds it by design
+as an anti-tracking measure, and on macOS the OS never exposes it to any
+application — CoreBluetooth hands out a per-host UUID instead. There is no flag,
+no permission, and no API that changes this. The drone also advertises no Device
+Information service, so it cannot be read out of GATT either.
+
+What Chrome gives you is `device.id`: an opaque identifier, stable for one browser
+profile and one origin, different on every other machine. It is shown as the grey
+code on each roster row and copies to the clipboard on click.
+
+So the MAC field is **operator-supplied**. Type in the address your controller
+displays and the roster becomes the MAC-to-drone map the picker cannot give you.
+Input is accepted in any format — `ac:a7:04:1f:53:9e`, `AC-A7-04-1F-53-9E`,
+`aca7041f539e` — and canonicalised to lowercase colon form.
+
 **Show every BLE device** widens the picker past the `pyDrone` name prefix, for
 a drone whose advertised name has been changed in firmware. Anything without a
 Nordic UART service is rejected on connect with a clear error rather than
@@ -134,6 +151,20 @@ drone.connected
 ```
 
 Top-level `await` is supported — the editor body is wrapped in a coroutine.
+
+## Keyboard
+
+| Keys | Axis |
+|---|---|
+| `W` / `S` | thrust up / down |
+| `A` / `D` | yaw left / right |
+| `I` / `K` | pitch forward / back |
+| `J` / `L` | roll left / right |
+| `Space` | emergency stop |
+
+Both hands stay on the home row, and nothing collides with browser scrolling.
+Keys deflect to 60% and mirror onto the on-screen sticks. They are ignored while
+a text field has focus, so typing a script or an alias can never fly the drone.
 
 ## Layout
 

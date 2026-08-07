@@ -5,6 +5,17 @@
 
 const KEY = 'pydrone.roster.v1';
 
+/**
+ * Canonicalise a MAC to aa:bb:cc:dd:ee:ff, or null if it is not one.
+ * Accepts colon, dash, dot or bare-hex input so operators can paste whatever
+ * their controller or label prints.
+ */
+export function normalizeMac(input) {
+  const hex = String(input ?? '').replace(/[^0-9a-fA-F]/g, '').toLowerCase();
+  if (hex.length !== 12) return null;
+  return hex.match(/.{2}/g).join(':');
+}
+
 export class Roster {
   constructor(storage = globalThis.localStorage, key = KEY) {
     this.storage = storage;
@@ -45,7 +56,7 @@ export class Roster {
       found.name = name || found.name;
       found.lastSeen = at;
     } else {
-      list.push({ id, name: name || 'pyDrone', alias: '', lastSeen: at });
+      list.push({ id, name: name || 'pyDrone', alias: '', mac: '', lastSeen: at });
     }
     this.#write(list);
     return this.get(id);
@@ -58,6 +69,34 @@ export class Roster {
     found.alias = (alias || '').trim().slice(0, 40);
     this.#write(list);
     return found;
+  }
+
+  /**
+   * Record the drone's hardware MAC by hand.
+   * The browser cannot read it — Web Bluetooth deliberately withholds MAC
+   * addresses — so this is operator-supplied, purely to tie a roster entry to
+   * the address printed by the controller.
+   * @returns the updated entry, or null if the id is unknown or the MAC is malformed.
+   */
+  setMac(id, mac) {
+    const list = this.#read();
+    const found = list.find((d) => d.id === id);
+    if (!found) return null;
+
+    const raw = String(mac ?? '').trim();
+    if (!raw) { found.mac = ''; this.#write(list); return found; }
+
+    const norm = normalizeMac(raw);
+    if (!norm) return null;
+    found.mac = norm;
+    this.#write(list);
+    return found;
+  }
+
+  /** Look a drone up by the MAC the operator recorded. */
+  byMac(mac) {
+    const norm = normalizeMac(mac);
+    return norm ? this.#read().find((d) => d.mac === norm) || null : null;
   }
 
   forget(id) {

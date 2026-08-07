@@ -1,7 +1,7 @@
 import { Drone } from './drone.js';
 import { thrustPercent } from './protocol.js';
 import { PyRuntime } from './pyrt.js';
-import { Roster } from './roster.js';
+import { Roster, normalizeMac } from './roster.js';
 
 const $ = (sel) => document.querySelector(sel);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -133,9 +133,40 @@ function renderRoster() {
     alias.addEventListener('keydown', (e) => { if (e.key === 'Enter') alias.blur(); });
     row.appendChild(alias);
 
+    // The browser will not tell us the MAC, so the operator records it here
+    // and the roster becomes the MAC -> drone mapping the picker cannot give us.
+    const mac = document.createElement('input');
+    mac.className = 'rmac' + (entry.mac ? '' : ' unset');
+    mac.value = entry.mac || '';
+    mac.placeholder = 'ac:a7:04:1f:53:9e';
+    mac.spellcheck = false;
+    mac.setAttribute('aria-label', 'hardware MAC address');
+    mac.title = 'MAC printed by your controller — Web Bluetooth cannot read it, so enter it by hand';
+    mac.addEventListener('change', () => {
+      const raw = mac.value.trim();
+      if (!raw) { roster.setMac(entry.id, ''); renderRoster(); return; }
+      if (!roster.setMac(entry.id, raw)) {
+        mac.classList.add('bad');
+        log(`"${raw}" is not a MAC — expected 12 hex digits, e.g. ac:a7:04:1f:53:9e`, 'err');
+        return;
+      }
+      log(`${roster.label(roster.get(entry.id))} → ${normalizeMac(raw)}`, 'ok');
+      renderRoster();
+    });
+    mac.addEventListener('input', () => mac.classList.remove('bad'));
+    mac.addEventListener('keydown', (e) => { if (e.key === 'Enter') mac.blur(); });
+    row.appendChild(mac);
+
     const id = document.createElement('code');
     id.className = 'rid';
     id.textContent = String(entry.id).slice(0, 6);
+    id.title = `browser device id (not a MAC): ${entry.id}\nclick to copy`;
+    id.addEventListener('click', () => {
+      navigator.clipboard?.writeText(entry.id).then(
+        () => log(`copied device id ${entry.id}`),
+        () => log('clipboard blocked by the browser', 'warn')
+      );
+    });
     row.appendChild(id);
 
     const go = document.createElement('button');
@@ -295,8 +326,12 @@ for (const def of stickDefs) {
   const knob = def.el.querySelector('.knob');
   let active = null;
 
-  const apply = (dx, dy) => {
+  const show = (dx, dy) => {
     knob.style.transform = `translate(${dx * 100}%, ${dy * 100}%)`;
+  };
+
+  const apply = (dx, dy) => {
+    show(dx, dy);
     drone.setAxes({ [def.x]: dx * 100, [def.y]: -dy * 100 });
   };
 
@@ -324,6 +359,7 @@ for (const def of stickDefs) {
   def.el.addEventListener('pointermove', move);
   def.el.addEventListener('pointerup', end);
   def.el.addEventListener('pointercancel', end);
+  def.el._show = show;
   def.el._reset = () => apply(0, 0);
 }
 
@@ -333,28 +369,30 @@ function resetSticks() {
 
 /* ── keyboard ──────────────────────────────────────────────────────── */
 
+// Left hand WASD (thrust / yaw), right hand IJKL (pitch / roll) — both hands
+// stay on the home row, and neither collides with the browser's own scrolling.
+const KEY_GAIN = 60;
 const keyMap = {
   KeyW: ['thrust',  1], KeyS: ['thrust', -1],
   KeyA: ['yaw',    -1], KeyD: ['yaw',     1],
-  ArrowUp: ['pitch', 1], ArrowDown: ['pitch', -1],
-  ArrowLeft: ['roll', -1], ArrowRight: ['roll', 1],
+  KeyI: ['pitch',   1], KeyK: ['pitch',  -1],
+  KeyJ: ['roll',   -1], KeyL: ['roll',    1],
 };
 const held = new Set();
 
 function pumpKeys() {
   const axes = { roll: 0, pitch: 0, yaw: 0, thrust: 0 };
-  let any = false;
   for (const code of held) {
     const m = keyMap[code];
-    if (!m) continue;
-    axes[m[0]] = m[1] * 60;
-    any = true;
+    if (m) axes[m[0]] = m[1] * KEY_GAIN;
   }
-  if (any) drone.setAxes(axes);
+  drone.setAxes(axes);
+  // Mirror the keys onto the on-screen sticks so both inputs read the same.
+  for (const def of stickDefs) def.el._show(axes[def.x] / 100, -axes[def.y] / 100);
 }
 
 addEventListener('keydown', (e) => {
-  if (e.target.matches('textarea, input')) return;
+  if (e.target.matches('textarea, input') || e.target.isContentEditable) return;
   if (e.code === 'Space') { e.preventDefault(); estop(); return; }
   if (!keyMap[e.code]) return;
   e.preventDefault();
@@ -365,7 +403,7 @@ addEventListener('keydown', (e) => {
 addEventListener('keyup', (e) => {
   if (!keyMap[e.code]) return;
   held.delete(e.code);
-  if (held.size === 0) drone.neutral();
+  if (held.size === 0) { drone.neutral(); resetSticks(); }
   else pumpKeys();
 });
 
