@@ -85,12 +85,35 @@
 
       <section class="panel">
         <header>
+          <h2>Fleet</h2>
+          <span class="hint">aliases stored in this browser</span>
+        </header>
+        <div class="body stack">
+          <div class="cmdrow">
+            <button class="btn primary" id="btn-connect">Connect<small>last used drone</small></button>
+            <button class="btn" id="btn-add">Add drone<small>opens picker</small></button>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="any-device">
+            <span>Show every BLE device in the picker
+              <small>use if a drone was renamed away from “pyDrone”</small></span>
+          </label>
+          <div class="roster" id="roster"></div>
+          <div class="notice">
+            <strong>Several drones share the name “pyDrone”.</strong> The browser picker cannot
+            tell them apart, so pair each once, give it an alias here, and connect by alias
+            afterwards — that path skips the picker entirely.
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <header>
           <h2>Command</h2>
           <span class="hint">takeoff = press &amp; hold</span>
         </header>
         <div class="body stack">
           <div class="cmdrow">
-            <button class="btn" id="btn-connect">Connect</button>
             <button class="btn primary hold" id="btn-takeoff" data-needs-link>
               <span class="fill"></span>Take off<small>hold 1.2 s</small>
             </button>

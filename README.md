@@ -24,6 +24,29 @@ ES modules require a real server — opening `index.html` from `file://` will no
 Push to a repo and enable Pages (Settings → Pages → deploy from branch, root).
 No build step; everything is static.
 
+## Picking a drone
+
+Every pyDrone advertises the same BLE name, so Chrome's device picker shows
+identical rows and you cannot tell which airframe you are about to arm. The
+**Fleet** panel solves this:
+
+1. **Add drone** opens the picker and pairs one.
+2. Give it an alias inline (masking tape colour, tail number, whatever).
+3. From then on, connecting by alias goes straight to that device — the picker
+   never opens, because the browser already holds permission for that `device.id`.
+
+Aliases live in `localStorage`, keyed by `device.id`. That id is stable per
+browser profile but differs across machines and profiles, so the roster is
+per-browser by design — it is not synced and does not travel with the drone.
+
+**Show every BLE device** widens the picker past the `pyDrone` name prefix, for
+a drone whose advertised name has been changed in firmware. Anything without a
+Nordic UART service is rejected on connect with a clear error rather than
+hanging.
+
+**Forget** drops it from the roster only. Chrome keeps the underlying pairing
+until you revoke it in the site's own permission settings.
+
 ## The protocol
 
 Reverse-engineered against the hardware, because the vendor docs are partial and
@@ -117,9 +140,10 @@ Top-level `await` is supported — the editor body is wrapped in a coroutine.
 ```
 index.html          page shell
 css/station.css     styling
-js/protocol.js      pure encode/decode, no I/O — this is what the tests cover
+js/protocol.js      pure encode/decode, no I/O — tested
+js/roster.js        known-drone list and aliases — tested
 js/drone.js         BLE connection, 20 Hz transmit loop, failsafes
 js/pyrt.js          Pyodide runtime and the Python-facing API
 js/ui.js            dashboard, sticks, keyboard, wiring
-test/               protocol tests, including real captured frames
+test/               protocol + roster tests, incl. real captured frames
 ```

@@ -35,21 +35,59 @@ export class Drone extends EventTarget {
     this.dispatchEvent(new CustomEvent(type, { detail }));
   }
 
-  async connect() {
+  /** Devices this browser profile has already been granted access to. */
+  static async known() {
+    if (!navigator.bluetooth?.getDevices) return [];
+    try {
+      return await navigator.bluetooth.getDevices();
+    } catch {
+      return []; // requires a Chrome flag on some versions; degrade to the picker
+    }
+  }
+
+  /**
+   * @param {object}  [opts]
+   * @param {string}  [opts.deviceId]  reconnect to a known device without the picker
+   * @param {boolean} [opts.anyDevice] show every BLE device, for renamed hardware
+   */
+  async connect({ deviceId = null, anyDevice = false } = {}) {
     if (!Drone.supported) {
       throw new Error('Web Bluetooth unavailable. Use Chrome or Edge — Safari and Firefox do not implement it.');
     }
-    this.#emit('status', { phase: 'requesting', message: 'waiting for device pick' });
 
-    this.device = await navigator.bluetooth.requestDevice({
-      filters: [{ name: 'pyDrone' }],
-      optionalServices: [NUS_SERVICE],
-    });
+    let device = null;
+
+    // Silent path: we already hold permission for this exact device, so skip
+    // the picker entirely. This is the only way to reliably target one drone
+    // when several advertise the same name.
+    if (deviceId) {
+      device = (await Drone.known()).find((d) => d.id === deviceId) || null;
+      if (device) this.#emit('status', { phase: 'requesting', message: `reconnecting ${device.name || deviceId}` });
+      else this.#emit('status', { phase: 'requesting', message: 'device not remembered — opening picker' });
+    }
+
+    if (!device) {
+      this.#emit('status', { phase: 'requesting', message: 'waiting for device pick' });
+      device = await navigator.bluetooth.requestDevice(
+        anyDevice
+          ? { acceptAllDevices: true, optionalServices: [NUS_SERVICE] }
+          : { filters: [{ namePrefix: 'pyDrone' }], optionalServices: [NUS_SERVICE] }
+      );
+    }
+
+    this.device = device;
     this.device.addEventListener('gattserverdisconnected', () => this.#onDrop());
 
     this.#emit('status', { phase: 'connecting', message: 'opening GATT' });
     const server = await this.device.gatt.connect();
-    const svc = await server.getPrimaryService(NUS_SERVICE);
+
+    let svc;
+    try {
+      svc = await server.getPrimaryService(NUS_SERVICE);
+    } catch {
+      this.device.gatt.disconnect();
+      throw new Error('device has no Nordic UART service — that is not a pyDrone');
+    }
     this.rxChar = await svc.getCharacteristic(NUS_RX);
     this.txChar = await svc.getCharacteristic(NUS_TX);
 
@@ -66,7 +104,7 @@ export class Drone extends EventTarget {
     this.neutral();
     this.#startLoop();
     this.#emit('status', { phase: 'connected', message: this.device.name || 'pyDrone' });
-    this.#emit('connected');
+    this.#emit('connected', { id: this.device.id, name: this.device.name });
     return this;
   }
 

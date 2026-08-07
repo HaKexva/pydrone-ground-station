@@ -1,6 +1,7 @@
 import { Drone } from './drone.js';
 import { thrustPercent } from './protocol.js';
 import { PyRuntime } from './pyrt.js';
+import { Roster } from './roster.js';
 
 const $ = (sel) => document.querySelector(sel);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -88,43 +89,141 @@ setInterval(() => {
   frameCount = 0;
 }, 1000);
 
-/* ── connection ────────────────────────────────────────────────────── */
+/* ── roster + connection ───────────────────────────────────────────── */
 
+const roster = new Roster();
 const btnConnect = $('#btn-connect');
+const rosterEl = $('#roster');
+const anyDeviceEl = $('#any-device');
+let activeId = null;
 
-drone.addEventListener('status', (e) => log(`link: ${e.detail.phase} — ${e.detail.message}`));
-drone.addEventListener('error', (e) => log(`ble: ${e.detail.message || e.detail}`, 'err'));
+function renderRoster() {
+  const list = roster.list();
+  rosterEl.textContent = '';
 
-drone.addEventListener('connected', () => {
-  linkPill.dataset.state = 'live';
-  linkPill.lastElementChild.textContent = 'connected';
-  btnConnect.textContent = 'Disconnect';
-  setFlightControlsEnabled(true);
-  log('connected — transmitting at 20 Hz', 'ok');
-});
+  if (!list.length) {
+    const empty = document.createElement('div');
+    empty.className = 'roster-empty';
+    empty.textContent = 'no drones paired yet — use “Add drone”';
+    rosterEl.appendChild(empty);
+    return;
+  }
 
-drone.addEventListener('disconnected', () => {
-  linkPill.dataset.state = '';
-  linkPill.lastElementChild.textContent = 'offline';
-  battPill.dataset.state = '';
-  btnConnect.textContent = 'Connect';
-  setFlightControlsEnabled(false);
-  log('disconnected', 'warn');
-});
+  for (const entry of list) {
+    const row = document.createElement('div');
+    row.className = 'rdev' + (entry.id === activeId ? ' active' : '');
 
-btnConnect.addEventListener('click', async () => {
-  if (drone.connected) { await drone.disconnect(); return; }
+    const dot = document.createElement('i');
+    dot.className = 'rdot';
+    row.appendChild(dot);
+
+    // Alias is editable in place — the whole point of the roster is telling
+    // identically-named drones apart.
+    const alias = document.createElement('input');
+    alias.className = 'ralias';
+    alias.value = entry.alias || '';
+    alias.placeholder = roster.label({ ...entry, alias: '' });
+    alias.spellcheck = false;
+    alias.setAttribute('aria-label', 'drone alias');
+    alias.addEventListener('change', () => {
+      roster.rename(entry.id, alias.value);
+      log(`renamed → ${roster.label(roster.get(entry.id))}`);
+      renderRoster();
+    });
+    alias.addEventListener('keydown', (e) => { if (e.key === 'Enter') alias.blur(); });
+    row.appendChild(alias);
+
+    const id = document.createElement('code');
+    id.className = 'rid';
+    id.textContent = String(entry.id).slice(0, 6);
+    row.appendChild(id);
+
+    const go = document.createElement('button');
+    go.className = 'rbtn';
+    go.textContent = entry.id === activeId ? 'disconnect' : 'connect';
+    go.addEventListener('click', () => {
+      if (entry.id === activeId) drone.disconnect();
+      else connectTo({ deviceId: entry.id });
+    });
+    row.appendChild(go);
+
+    const drop = document.createElement('button');
+    drop.className = 'rbtn ghost';
+    drop.textContent = '×';
+    drop.title = 'forget this drone';
+    drop.addEventListener('click', () => {
+      roster.forget(entry.id);
+      log('forgotten — Chrome still holds the pairing until you revoke it in site settings', 'warn');
+      renderRoster();
+    });
+    row.appendChild(drop);
+
+    rosterEl.appendChild(row);
+  }
+}
+
+async function connectTo(opts = {}) {
+  if (drone.connected) await drone.disconnect();
   try {
-    await drone.connect();
+    await drone.connect({ ...opts, anyDevice: anyDeviceEl.checked });
   } catch (err) {
     if (err.name === 'NotFoundError') log('no device picked', 'warn');
     else log(String(err.message || err), 'err');
   }
+}
+
+drone.addEventListener('status', (e) => log(`link: ${e.detail.phase} — ${e.detail.message}`));
+drone.addEventListener('error', (e) => log(`ble: ${e.detail.message || e.detail}`, 'err'));
+
+drone.addEventListener('connected', (e) => {
+  const { id, name } = e.detail || {};
+  activeId = id || null;
+  const entry = roster.remember({ id, name });
+  const label = roster.label(entry);
+
+  linkPill.dataset.state = 'live';
+  linkPill.lastElementChild.textContent = label;
+  btnConnect.textContent = 'Disconnect';
+  setFlightControlsEnabled(true);
+  renderRoster();
+  log(`connected to ${label} — transmitting at 20 Hz`, 'ok');
 });
+
+drone.addEventListener('disconnected', () => {
+  activeId = null;
+  linkPill.dataset.state = '';
+  linkPill.lastElementChild.textContent = 'offline';
+  battPill.dataset.state = '';
+  battPill.lastElementChild.textContent = '— V';
+  btnConnect.textContent = 'Connect';
+  setFlightControlsEnabled(false);
+  renderRoster();
+  log('disconnected', 'warn');
+});
+
+btnConnect.addEventListener('click', () => {
+  if (drone.connected) { drone.disconnect(); return; }
+  // Prefer a silent reconnect to the last drone used; fall back to the picker.
+  const last = roster.list()[0];
+  connectTo(last ? { deviceId: last.id } : {});
+});
+
+$('#btn-add').addEventListener('click', () => connectTo({}));
 
 function setFlightControlsEnabled(on) {
   for (const el of document.querySelectorAll('[data-needs-link]')) el.disabled = !on;
 }
+
+// Chrome only exposes getDevices() behind a flag on some versions; when it is
+// missing every connect falls back to the picker, so say so once rather than
+// letting "connect" silently reopen the dialog every time.
+Drone.known().then((known) => {
+  if (!navigator.bluetooth?.getDevices) {
+    log('this Chrome build cannot silently reconnect — every connect opens the picker', 'warn');
+  } else if (known.length) {
+    log(`${known.length} drone(s) already paired with this browser`, 'ok');
+  }
+});
 
 /* ── flight commands ───────────────────────────────────────────────── */
 
@@ -359,3 +458,4 @@ if (!Drone.supported) {
 }
 setFlightControlsEnabled(false);
 paintAttitude(0, 0);
+renderRoster();
