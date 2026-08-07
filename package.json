@@ -1,0 +1,11 @@
+{
+  "name": "pydrone-ground-station",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Web Bluetooth ground control station for the 01Studio pyDrone",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "serve": "python3 -m http.server 8765"
+  }
+}

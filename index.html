@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>pyDrone · Ground Station</title>
+<meta name="description" content="Web Bluetooth ground control station for the 01Studio pyDrone — live telemetry, virtual sticks, and Python flight scripting.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🛸</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/station.css">
+</head>
+<body>
+<div class="shell">
+
+  <header class="masthead">
+    <div class="brand">
+      <h1>py<em>Drone</em> Ground Station</h1>
+      <div class="sub">01studio · esp32-s3 · nordic uart over ble</div>
+      <div class="linkstrip">
+        <span class="pill" id="pill-link"><i class="dot"></i><span>offline</span></span>
+        <span class="pill" id="pill-batt"><i class="dot"></i><span>— V</span></span>
+        <span class="pill" id="pill-rate"><i class="dot"></i><span>0 f/s</span></span>
+      </div>
+    </div>
+    <div class="masthead-right">
+      <button class="estop" id="btn-estop">Stop<small>space bar</small></button>
+    </div>
+  </header>
+
+  <div class="notice bad hidden" id="compat">
+    <strong>Web Bluetooth unavailable.</strong> This page needs Chrome or Edge on desktop or Android.
+    Safari and Firefox do not implement the Web Bluetooth API and cannot talk to the drone.
+  </div>
+
+  <main class="grid">
+
+    <!-- ── left: flight ────────────────────────────────────────── -->
+    <div class="stack">
+
+      <section class="panel">
+        <header>
+          <h2>Attitude &amp; State</h2>
+          <span class="hint">18-byte frame · 20 Hz</span>
+        </header>
+        <div class="body">
+          <div class="instruments">
+            <div class="horizon-wrap">
+              <svg viewBox="-100 -100 200 200" aria-label="artificial horizon">
+                <g id="ah-horizon">
+                  <rect x="-300" y="-300" width="600" height="300" fill="#0a2f36"/>
+                  <rect x="-300" y="0"    width="600" height="300" fill="#2c1e0d"/>
+                  <line x1="-300" y1="0" x2="300" y2="0" stroke="#ffb020" stroke-width="1.6"/>
+                  <g stroke="#7d8f89" stroke-width="1" font-family="IBM Plex Mono" font-size="7" fill="#7d8f89">
+                    <line x1="-22" y1="-48" x2="22" y2="-48"/><text x="26" y="-45.5">30</text>
+                    <line x1="-15" y1="-32" x2="15" y2="-32"/><text x="19" y="-29.5">20</text>
+                    <line x1="-22" y1="-16" x2="22" y2="-16"/><text x="26" y="-13.5">10</text>
+                    <line x1="-22" y1="16"  x2="22" y2="16"/><text x="26" y="18.5">10</text>
+                    <line x1="-15" y1="32"  x2="15" y2="32"/><text x="19" y="34.5">20</text>
+                    <line x1="-22" y1="48"  x2="22" y2="48"/><text x="26" y="50.5">30</text>
+                  </g>
+                </g>
+                <g id="ah-roll" stroke="#586862" stroke-width="1.4" fill="none">
+                  <path d="M0,-88 l-5,-9 l10,0 z" fill="#35e08b" stroke="none"/>
+                </g>
+                <g stroke="#35e08b" stroke-width="2.4" fill="none">
+                  <path d="M-34,0 l16,0 l6,7 l6,-7 l16,0"/>
+                </g>
+                <circle cx="0" cy="0" r="92" fill="none" stroke="#222b27" stroke-width="14"/>
+              </svg>
+            </div>
+
+            <div class="readouts">
+              <div class="cell"><div class="k">Roll</div><div class="v" id="v-roll">  0.00<span>°</span></div></div>
+              <div class="cell"><div class="k">Pitch</div><div class="v" id="v-pitch">  0.00<span>°</span></div></div>
+              <div class="cell"><div class="k">Yaw</div><div class="v" id="v-yaw">  0.0<span>°</span></div></div>
+              <div class="cell"><div class="k">Thrust</div><div class="v" id="v-thrust">50<span>%</span></div></div>
+              <div class="cell"><div class="k">Battery</div><div class="v" id="v-batt">0.00<span>V</span></div></div>
+              <div class="cell suspect"><div class="k">Baro</div><div class="v" id="v-alt">0<span>raw</span></div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <header>
+          <h2>Command</h2>
+          <span class="hint">takeoff = press &amp; hold</span>
+        </header>
+        <div class="body stack">
+          <div class="cmdrow">
+            <button class="btn" id="btn-connect">Connect</button>
+            <button class="btn primary hold" id="btn-takeoff" data-needs-link>
+              <span class="fill"></span>Take off<small>hold 1.2 s</small>
+            </button>
+            <button class="btn" id="btn-land" data-needs-link>Land<small>gradual descent</small></button>
+            <button class="btn" id="btn-trim" data-needs-link>Trim<small>zero the display</small></button>
+          </div>
+
+          <div class="notice">
+            <strong>Props off for first tests.</strong> Thrust is ignored until the drone is armed,
+            so the only way to spin motors is a real <code>take_off()</code>. Calibrate first —
+            level surface, press reset, wait for the blue LED to go solid — or the drone stays locked.
+          </div>
+
+          <div class="sticks">
+            <div class="stick" id="stick-left">
+              <span class="tag n">thr +</span><span class="tag s">thr −</span>
+              <span class="tag w">yaw ←</span><span class="tag e">yaw →</span>
+              <div class="knob"></div>
+            </div>
+            <div class="stick" id="stick-right">
+              <span class="tag n">pitch ↑</span><span class="tag s">pitch ↓</span>
+              <span class="tag w">roll ←</span><span class="tag e">roll →</span>
+              <div class="knob"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ── right: python ───────────────────────────────────────── -->
+    <div class="stack">
+      <section class="panel">
+        <header>
+          <h2>Flight Script · Python</h2>
+          <span class="hint">pyodide · runs in-browser</span>
+        </header>
+        <div class="body">
+          <div class="snips" id="snips"></div>
+          <div class="editor-wrap">
+            <textarea class="editor" id="editor" spellcheck="false" autocomplete="off"></textarea>
+          </div>
+          <div class="cmdrow" style="margin-top:10px">
+            <button class="btn primary" id="btn-run" data-needs-link>Run<small>top-level await ok</small></button>
+            <button class="btn" id="btn-abort" disabled>Abort<small>neutralise sticks</small></button>
+          </div>
+          <div class="console" id="console"></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <header><h2>API</h2><span class="hint">in scope as <code>drone</code></span></header>
+        <div class="body">
+          <div class="console" style="height:auto;margin:0">await drone.takeoff(settle=3.0)
+await drone.land(settle=3.0)
+drone.stop()                     # emergency, cuts motors
+drone.set(roll=, pitch=, yaw=, thrust=)   # each -100..100
+drone.neutral()
+await drone.hold(secs, pitch=35) # apply, wait, recentre
+await sleep(secs)                # abort-aware
+drone.state                      # dict: roll pitch yaw thrust battery alt
+drone.battery                    # volts
+drone.connected</div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <p class="footnote">
+    Protocol measured against hardware, not vendor-supplied — 8-byte control frame
+    <code>[hdr, roll, pitch, yaw, thrust, buttons, 0, 0]</code>, byte 0 is a header and not an axis.
+    Buttons: 24 takeoff · 72 land · 40 aux · 136 stop. Sticks map
+    <code>≤100 → v−100</code>, <code>100–155 → 0</code>, <code>&gt;155 → v−155</code>.
+    Telemetry is 9 big-endian uint16 biased by +32768. Baro is flagged because it reads noise on the bench.
+    Hardware notes: <a href="https://wiki.01studio.cc/en/docs/pydrone/">01studio wiki</a>.
+  </p>
+</div>
+
+<script type="module" src="js/ui.js"></script>
+</body>
+</html>
