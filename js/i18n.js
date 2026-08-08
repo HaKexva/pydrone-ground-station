@@ -14,9 +14,9 @@ export const STRINGS = {
     droneName: '幫它取個名字', noDrones: '還沒有配對過的無人機，按「新增一台」開始。',
     forget: '移除', renameHint: '點名字就可以改',
 
-    bricksTitle: '你的積木', bricksHint: '點數字可以改，拖曳可以換順序',
+    bricksTitle: '用積木排程式', bricksHint: '拖曳可以換順序',
     addBrick: '加一塊積木', removeBrick: '拿掉這塊',
-    pyTitle: '同一件事，用 Python 寫', pyHint: '真正的程式碼',
+    pyTitle: '用 Python 寫', pyHint: '真正的程式碼',
     pyComment: '飛一個正方形。用一個迴圈，不用複製貼上。',
     editPython: '改 Python', backToBricks: '回到積木',
     editWarning: '你現在直接改 Python 了。積木不會再跟著變——按「回到積木」會把你的修改丟掉。',
@@ -82,9 +82,9 @@ export const STRINGS = {
     droneName: 'give it a name', noDrones: 'No drones paired yet — press “Add a drone”.',
     forget: 'Remove', renameHint: 'tap the name to change it',
 
-    bricksTitle: 'Your bricks', bricksHint: 'tap a number to change it, drag to reorder',
+    bricksTitle: 'Build with bricks', bricksHint: 'drag to reorder',
     addBrick: 'Add a brick', removeBrick: 'Remove this one',
-    pyTitle: 'The same thing, in Python', pyHint: 'real code',
+    pyTitle: 'In Python', pyHint: 'real code',
     pyComment: 'Fly a square. One loop, no copy-paste.',
     editPython: 'Edit the Python', backToBricks: 'Back to bricks',
     editWarning: 'You are editing the Python directly now. The bricks will not follow — “Back to bricks” discards your changes.',
