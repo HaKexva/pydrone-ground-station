@@ -1,177 +1,524 @@
 import { Drone } from './drone.js';
-import { thrustPercent } from './protocol.js';
-import { PyRuntime } from './pyrt.js';
 import { Roster, normalizeMac } from './roster.js';
+import { Moves } from './moves.js';
+import { BLOCKS, makeBlock, toPython, runOrder, outlinePath, SHAPE, starterProgram } from './bricks.js';
+import { STRINGS, DEFAULT_LANG } from './i18n.js';
+import { PyRuntime } from './pyrt.js';
 
-const $ = (sel) => document.querySelector(sel);
+const $ = (s) => document.querySelector(s);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 const drone = new Drone();
+const roster = new Roster();
 
-/* ── console ───────────────────────────────────────────────────────── */
+let lang = DEFAULT_LANG;
+let program = starterProgram();
+let activeId = null;
+let running = false;
+let abortFlag = false;
+let editingPython = false;
 
-const consoleEl = $('#console');
+const T = () => STRINGS[lang];
+
+/* ── log ───────────────────────────────────────────────────────────── */
+
+const logEl = $('#log');
 function log(msg, kind = '') {
   const line = document.createElement('div');
-  line.className = `l ${kind}`;
-  const ts = new Date().toLocaleTimeString('en-GB', { hour12: false });
-  line.innerHTML = `<span class="ts">${ts}</span>`;
-  line.appendChild(document.createTextNode(msg));
-  consoleEl.appendChild(line);
-  consoleEl.scrollTop = consoleEl.scrollHeight;
-  while (consoleEl.childElementCount > 400) consoleEl.firstElementChild.remove();
+  if (kind) line.className = kind;
+  if (msg.includes('<')) line.innerHTML = msg;
+  else line.textContent = msg;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+  while (logEl.childElementCount > 300) logEl.firstElementChild.remove();
 }
 
-const py = new PyRuntime(drone, log);
+/* ── abort-aware sleep ─────────────────────────────────────────────── */
 
-/* ── attitude indicator ────────────────────────────────────────────── */
+class Aborted extends Error {}
 
-const trim = { roll: 0, pitch: 0 };
-const ahHorizon = $('#ah-horizon');
-const ahRoll = $('#ah-roll');
-
-function paintAttitude(roll, pitch) {
-  const r = roll - trim.roll;
-  const p = clamp(pitch - trim.pitch, -90, 90);
-  ahHorizon.setAttribute('transform', `rotate(${-r}) translate(0 ${p * 1.6})`);
-  ahRoll.setAttribute('transform', `rotate(${-r})`);
+async function sleep(seconds) {
+  const end = performance.now() + Math.max(0, seconds) * 1000;
+  for (;;) {
+    if (abortFlag) throw new Aborted();
+    const left = end - performance.now();
+    if (left <= 0) return;
+    await new Promise((r) => setTimeout(r, Math.min(40, left)));
+  }
 }
 
-/* ── telemetry readouts ────────────────────────────────────────────── */
+const moves = new Moves(drone, { sleep });
 
-const cells = {
-  roll:    $('#v-roll'),
-  pitch:   $('#v-pitch'),
-  yaw:     $('#v-yaw'),
-  thrust:  $('#v-thrust'),
-  battery: $('#v-batt'),
-  alt:     $('#v-alt'),
-};
-const linkPill = $('#pill-link');
-const battPill = $('#pill-batt');
-const ratePill = $('#pill-rate');
+/* ── python runtime (loaded only if a child opens the editor) ───────── */
 
-const fmt = (n, d = 2) => (n < 0 ? '' : ' ') + n.toFixed(d);
+const py = new PyRuntime({ moves, drone, sleep, log, lang: () => lang });
 
-let lastTelemetryAt = 0;
-let frameCount = 0;
+/* ── i18n ──────────────────────────────────────────────────────────── */
 
-drone.addEventListener('telemetry', (e) => {
-  const t = e.detail;
-  lastTelemetryAt = performance.now();
-  frameCount++;
+function applyLang(next) {
+  lang = next;
+  document.documentElement.lang = lang;
+  const d = T();
+  for (const el of document.querySelectorAll('[data-i]')) {
+    const v = d[el.dataset.i];
+    if (v !== undefined) el.textContent = v;
+  }
+  for (const el of document.querySelectorAll('[data-i-html]')) {
+    const v = d[el.dataset.iHtml];
+    if (v !== undefined) el.innerHTML = v;
+  }
+  $('#lang-zh').setAttribute('aria-pressed', String(lang === 'zh-TW'));
+  $('#lang-en').setAttribute('aria-pressed', String(lang === 'en'));
+  logEl.textContent = '';
+  log(d.logReady);
+  renderAll();
+  paintLink();
+}
 
-  cells.roll.firstChild.data = fmt(t.roll - trim.roll);
-  cells.pitch.firstChild.data = fmt(t.pitch - trim.pitch);
-  cells.yaw.firstChild.data = fmt(t.yaw, 1);
-  cells.thrust.firstChild.data = String(t.thrust);
-  cells.battery.firstChild.data = t.battery.toFixed(2);
-  cells.alt.firstChild.data = String(t.alt);
+$('#lang-zh').addEventListener('click', () => applyLang('zh-TW'));
+$('#lang-en').addEventListener('click', () => applyLang('en'));
 
-  // 1S LiPo: 3.7 V is the working floor, below 3.5 V land immediately.
-  const b = t.battery;
-  cells.battery.className = 'v ' + (b < 3.5 ? 'bad' : b < 3.7 ? '' : 'ok');
-  battPill.dataset.state = b < 3.5 ? 'bad' : b < 3.7 ? 'warn' : 'live';
-  battPill.lastElementChild.textContent = `${b.toFixed(2)} V`;
+/* ── program tree helpers ──────────────────────────────────────────── */
 
-  // >60 deg is the firmware's own loss-of-control threshold.
-  const tilt = Math.max(Math.abs(t.roll - trim.roll), Math.abs(t.pitch - trim.pitch));
-  cells.roll.className = 'v ' + (tilt > 60 ? 'bad' : '');
-  cells.pitch.className = 'v ' + (tilt > 60 ? 'bad' : '');
+function findParent(list, id, parent = null) {
+  for (let i = 0; i < list.length; i++) {
+    if (list[i].id === id) return { list, index: i, parent };
+    const kids = list[i].children;
+    if (kids) {
+      const found = findParent(kids, id, list[i]);
+      if (found) return found;
+    }
+  }
+  return null;
+}
 
-  paintAttitude(t.roll, t.pitch);
+function contains(node, id) {
+  if (node.id === id) return true;
+  return (node.children || []).some((c) => contains(c, id));
+}
+
+function removeNode(id) {
+  const at = findParent(program, id);
+  if (!at) return null;
+  return at.list.splice(at.index, 1)[0];
+}
+
+/* ── bricks ────────────────────────────────────────────────────────── */
+
+const stackEl = $('#stack');
+const NS = 'http://www.w3.org/2000/svg';
+
+function paintShape(el) {
+  const svg = el.querySelector('svg.shape');
+  const w = el.clientWidth, h = el.clientHeight;
+  if (!svg || !w || !h) return;
+  const notch = el.dataset.notch === '1';
+  const tab = el.dataset.tab === '1';
+  const d = outlinePath(w, h, notch, tab);
+  const fullH = h + SHAPE.depth + SHAPE.shadow + 2;
+  const fullW = w + SHAPE.shadow + 2;
+  svg.setAttribute('width', fullW);
+  svg.setAttribute('height', fullH);
+  svg.setAttribute('viewBox', `0 0 ${fullW} ${fullH}`);
+  svg.querySelector('.face').setAttribute('d', d);
+  const shadow = svg.querySelector('.shadow');
+  shadow.setAttribute('d', d);
+  shadow.setAttribute('transform', `translate(${SHAPE.shadow} ${SHAPE.shadow})`);
+  const div = svg.querySelector('.divide');
+  div.setAttribute('x1', SHAPE.divider);
+  div.setAttribute('x2', SHAPE.divider);
+  div.setAttribute('y1', notch ? SHAPE.inset + SHAPE.depth : SHAPE.inset + 2);
+  div.setAttribute('y2', tab ? h - SHAPE.inset : h - SHAPE.inset - 2);
+}
+
+const shapeObserver = new ResizeObserver((entries) => {
+  for (const e of entries) paintShape(e.target);
 });
 
-setInterval(() => {
-  const alive = drone.connected && performance.now() - lastTelemetryAt < 700;
-  ratePill.dataset.state = alive ? 'live' : drone.connected ? 'warn' : '';
-  ratePill.lastElementChild.textContent = `${frameCount} f/s`;
-  frameCount = 0;
-}, 1000);
+function icon(name, cls = 'ic lg') {
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', cls);
+  const use = document.createElementNS(NS, 'use');
+  use.setAttribute('href', `#i-${name}`);
+  svg.appendChild(use);
+  return svg;
+}
 
-/* ── roster + connection ───────────────────────────────────────────── */
+function makeBrickEl(node, notch, tab) {
+  const spec = BLOCKS[node.type];
+  const el = document.createElement('div');
+  el.className = `brick b-${spec.color}`;
+  el.dataset.id = node.id;
+  el.dataset.notch = notch ? '1' : '0';
+  el.dataset.tab = tab ? '1' : '0';
+  el.tabIndex = 0;
+  el.draggable = true;
 
-const roster = new Roster();
-const btnConnect = $('#btn-connect');
-const rosterEl = $('#roster');
-const anyDeviceEl = $('#any-device');
-let activeId = null;
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', 'shape');
+  for (const [cls, tag] of [['shadow', 'path'], ['face', 'path'], ['divide', 'line']]) {
+    const n = document.createElementNS(NS, tag);
+    n.setAttribute('class', cls);
+    svg.appendChild(n);
+  }
+  el.appendChild(svg);
 
-function renderRoster() {
+  const ico = document.createElement('span');
+  ico.className = 'icon';
+  ico.appendChild(icon(spec.icon));
+  el.appendChild(ico);
+
+  const [label, sub] = T().blocks[node.type] || [node.type, ''];
+  const say = document.createElement('span');
+  say.className = 'say';
+  say.textContent = label;
+  const small = document.createElement('small');
+  small.textContent = sub;
+  say.appendChild(small);
+  el.appendChild(say);
+
+  if (spec.arg) {
+    const btn = document.createElement('button');
+    btn.className = 'tweak';
+    btn.type = 'button';
+    const show = () => { btn.textContent = `${node[spec.arg.key]} ${spec.arg.unit}`; };
+    show();
+    btn.addEventListener('click', (e) => { e.stopPropagation(); editArg(btn, node, spec.arg, show); });
+    el.appendChild(btn);
+  }
+
+  const kill = document.createElement('button');
+  kill.className = 'kill';
+  kill.type = 'button';
+  kill.title = T().removeBrick;
+  kill.appendChild(icon('trash', 'ic'));
+  kill.addEventListener('click', (e) => {
+    e.stopPropagation();
+    removeNode(node.id);
+    renderAll();
+  });
+  el.appendChild(kill);
+  el.appendChild(icon('grip', 'ic grip'));
+
+  shapeObserver.observe(el);
+  return el;
+}
+
+/** Swap the pill for a number field so a child can type the value directly. */
+function editArg(btn, node, arg, show) {
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.className = 'tweak';
+  input.value = node[arg.key];
+  input.min = arg.min; input.max = arg.max; input.step = arg.step;
+  input.style.width = '5.5em';
+  btn.replaceWith(input);
+  input.focus();
+  input.select();
+
+  const commit = () => {
+    const v = clamp(Number(input.value) || arg.def, arg.min, arg.max);
+    node[arg.key] = arg.step >= 1 ? Math.round(v) : Math.round(v * 100) / 100;
+    input.replaceWith(btn);
+    show();
+    renderCode();
+  };
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { input.replaceWith(btn); }
+  });
+}
+
+function renderList(list, container) {
+  list.forEach((node, i) => {
+    const spec = BLOCKS[node.type];
+    // A tab only earns its place when the brick below starts at the same x —
+    // a container indents its children, so it never wears one.
+    const notch = i > 0 && !BLOCKS[list[i - 1].type].container;
+    const tab = i < list.length - 1 && !spec.container;
+    container.appendChild(makeBrickEl(node, notch, tab));
+
+    if (spec.container) {
+      const nest = document.createElement('div');
+      nest.className = 'nest';
+      nest.dataset.parent = node.id;
+      renderList(node.children || [], nest);
+      container.appendChild(nest);
+    }
+  });
+}
+
+function renderBricks() {
+  for (const el of stackEl.querySelectorAll('.brick')) shapeObserver.unobserve(el);
+  stackEl.textContent = '';
+  renderList(program, stackEl);
+  requestAnimationFrame(() => stackEl.querySelectorAll('.brick').forEach(paintShape));
+}
+
+/* ── palette ───────────────────────────────────────────────────────── */
+
+function renderPalette() {
+  const pal = $('#palette');
+  pal.textContent = '';
+  for (const [type, spec] of Object.entries(BLOCKS)) {
+    if (type === 'takeoff' || type === 'land') continue; // already in every program
+    const b = document.createElement('button');
+    b.className = 'pal';
+    b.type = 'button';
+    b.style.setProperty('--fill', `var(--${spec.color === 'kraft' ? 'kraft-in' : spec.color})`);
+    b.appendChild(icon(spec.icon, 'ic'));
+    const label = document.createElement('span');
+    label.textContent = (T().blocks[type] || [type])[0];
+    b.appendChild(label);
+    b.addEventListener('click', () => {
+      // Land stays last: a brick added after it would never run.
+      const last = program[program.length - 1];
+      const at = last && last.type === 'land' ? program.length - 1 : program.length;
+      program.splice(at, 0, makeBlock(type));
+      renderAll();
+    });
+    pal.appendChild(b);
+  }
+}
+
+/* ── drag to reorder ───────────────────────────────────────────────── */
+
+let dragId = null;
+
+stackEl.addEventListener('dragstart', (e) => {
+  const el = e.target.closest('.brick');
+  if (!el) return;
+  dragId = el.dataset.id;
+  el.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', dragId);
+});
+
+stackEl.addEventListener('dragend', () => {
+  dragId = null;
+  stackEl.querySelectorAll('.dragging').forEach((el) => el.classList.remove('dragging'));
+});
+
+stackEl.addEventListener('dragover', (e) => {
+  if (dragId) e.preventDefault();
+});
+
+stackEl.addEventListener('drop', (e) => {
+  const target = e.target.closest('.brick');
+  if (!dragId || !target || target.dataset.id === dragId) return;
+  e.preventDefault();
+
+  const moving = findParent(program, dragId);
+  const onto = findParent(program, target.dataset.id);
+  if (!moving || !onto) return;
+  // Dropping a loop inside itself would detach the subtree from the program.
+  if (contains(moving.list[moving.index], target.dataset.id)) return;
+
+  const node = removeNode(dragId);
+  const dest = findParent(program, target.dataset.id);
+  const rect = target.getBoundingClientRect();
+  const after = e.clientY > rect.top + rect.height / 2;
+  dest.list.splice(dest.index + (after ? 1 : 0), 0, node);
+  renderAll();
+});
+
+/* ── python pane ───────────────────────────────────────────────────── */
+
+const codeEl = $('#code');
+const editorEl = $('#editor');
+
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+function highlight(text) {
+  if (text.trimStart().startsWith('#')) return `<span class="c">${esc(text)}</span>`;
+  return esc(text)
+    .replace(/\b(await|for|in|pass)\b/g, '<span class="k">$1</span>')
+    .replace(/drone\.(\w+)/g, 'drone.<span class="f">$1</span>')
+    .replace(/\b(range|sleep|print)\b(?![^<]*<\/span>)/g, '<span class="f">$1</span>')
+    .replace(/(?<![\w>])(\d+\.?\d*)(?![\w<])/g, '<span class="n hl">$1</span>');
+}
+
+function renderCode() {
+  const { lines, code } = toPython(program, { comment: T().pyComment });
+  if (editingPython) return;
+  editorEl.value = code;
+  codeEl.textContent = '';
+  for (const l of lines) {
+    const span = document.createElement('span');
+    span.className = 'line';
+    if (l.id) span.dataset.id = l.id;
+    span.innerHTML = highlight('    '.repeat(l.indent) + l.text);
+    codeEl.appendChild(span);
+    codeEl.appendChild(document.createTextNode('\n'));
+  }
+}
+
+function renderAll() {
+  renderBricks();
+  renderPalette();
+  renderCode();
+}
+
+/* ── edit / run python ─────────────────────────────────────────────── */
+
+$('#btn-edit').addEventListener('click', () => {
+  editingPython = true;
+  codeEl.classList.add('hidden');
+  editorEl.classList.remove('hidden');
+  $('#edit-warn').classList.remove('hidden');
+  $('#btn-edit').classList.add('hidden');
+  $('#btn-unedit').classList.remove('hidden');
+  $('#btn-runpy').classList.remove('hidden');
+  $('#btn-runpy').disabled = !drone.connected;
+  $('#btn-run').disabled = true;
+});
+
+$('#btn-unedit').addEventListener('click', () => {
+  editingPython = false;
+  codeEl.classList.remove('hidden');
+  editorEl.classList.add('hidden');
+  $('#edit-warn').classList.add('hidden');
+  $('#btn-edit').classList.remove('hidden');
+  $('#btn-unedit').classList.add('hidden');
+  $('#btn-runpy').classList.add('hidden');
+  $('#btn-run').disabled = !drone.connected;
+  renderCode();
+});
+
+$('#btn-runpy').addEventListener('click', async () => {
+  if (running) return;
+  running = true; abortFlag = false;
+  $('#btn-runpy').disabled = true;
+  try {
+    await py.run(editorEl.value);
+  } finally {
+    running = false;
+    drone.neutral();
+    $('#btn-runpy').disabled = !drone.connected;
+  }
+});
+
+/* ── run the bricks ────────────────────────────────────────────────── */
+
+function clearHighlight() {
+  stackEl.querySelectorAll('.brick.running').forEach((el) => el.classList.remove('running'));
+  codeEl.querySelectorAll('.line.on').forEach((el) => el.classList.remove('on'));
+}
+
+function highlightStep(id) {
+  clearHighlight();
+  stackEl.querySelectorAll(`.brick[data-id="${id}"]`).forEach((el) => el.classList.add('running'));
+  codeEl.querySelectorAll(`.line[data-id="${id}"]`).forEach((el) => el.classList.add('on'));
+}
+
+async function execStep(step) {
+  const n = step.node || {};
+  switch (step.type) {
+    case 'takeoff':    return moves.take_off();
+    case 'land':       return moves.land();
+    case 'forward':    return moves.forward(n.seconds);
+    case 'back':       return moves.back(n.seconds);
+    case 'turn_right': return moves.turn_right(n.degrees);
+    case 'turn_left':  return moves.turn_left(n.degrees);
+    case 'up':         return moves.up(n.seconds);
+    case 'down':       return moves.down(n.seconds);
+    case 'wait':       return moves.wait(n.seconds);
+    case 'loop':       return; // a marker in the run order, not a movement
+  }
+}
+
+$('#btn-run').addEventListener('click', async () => {
+  if (running) return;
+  if (!drone.connected) { log(T().notConnectedRun, 'bad'); return; }
+
+  running = true;
+  abortFlag = false;
+  $('#btn-run').disabled = true;
+  logEl.textContent = '';
+
+  try {
+    for (const step of runOrder(program)) {
+      highlightStep(step.id);
+      const msg = T().runMsg[step.type];
+      if (msg) log(step.type === 'loop' ? msg.replace('{n}', step.iteration + 1) : msg);
+      await execStep(step);
+    }
+    log(T().done, '');
+  } catch (err) {
+    if (err instanceof Aborted) log(T().aborted, 'bad');
+    else log(String(err.message || err), 'bad');
+  } finally {
+    running = false;
+    clearHighlight();
+    drone.neutral();
+    $('#btn-run').disabled = !drone.connected || editingPython;
+  }
+});
+
+function stopEverything() {
+  abortFlag = true;
+  py.abort();
+  drone.estop();
+  clearHighlight();
+  held.clear();
+  log(T().stopped, 'bad');
+}
+
+$('#btn-stop').addEventListener('click', stopEverything);
+
+/* ── fleet ─────────────────────────────────────────────────────────── */
+
+const dronesEl = $('#drones');
+
+function renderDrones() {
   const list = roster.list();
-  rosterEl.textContent = '';
-
+  dronesEl.textContent = '';
   if (!list.length) {
-    const empty = document.createElement('div');
-    empty.className = 'roster-empty';
-    empty.textContent = 'no drones paired yet — use “Add drone”';
-    rosterEl.appendChild(empty);
+    const p = document.createElement('p');
+    p.className = 'empty-note';
+    p.textContent = T().noDrones;
+    dronesEl.appendChild(p);
     return;
   }
 
   for (const entry of list) {
     const row = document.createElement('div');
-    row.className = 'rdev' + (entry.id === activeId ? ' active' : '');
+    row.className = 'drone-row' + (entry.id === activeId ? ' active' : '');
 
-    const dot = document.createElement('i');
-    dot.className = 'rdot';
-    row.appendChild(dot);
+    const sw = document.createElement('span');
+    sw.className = 'swatch';
+    sw.appendChild(icon('radio', 'ic'));
+    row.appendChild(sw);
 
-    // Alias is editable in place — the whole point of the roster is telling
-    // identically-named drones apart.
-    const alias = document.createElement('input');
-    alias.className = 'ralias';
-    alias.value = entry.alias || '';
-    alias.placeholder = roster.label({ ...entry, alias: '' });
-    alias.spellcheck = false;
-    alias.setAttribute('aria-label', 'drone alias');
-    alias.addEventListener('change', () => {
-      roster.rename(entry.id, alias.value);
-      log(`renamed → ${roster.label(roster.get(entry.id))}`);
-      renderRoster();
-    });
-    alias.addEventListener('keydown', (e) => { if (e.key === 'Enter') alias.blur(); });
-    row.appendChild(alias);
+    const name = document.createElement('input');
+    name.className = 'name-in';
+    name.value = entry.alias || '';
+    name.placeholder = roster.label({ ...entry, alias: '' });
+    name.title = T().renameHint;
+    name.addEventListener('change', () => { roster.rename(entry.id, name.value); renderDrones(); });
+    row.appendChild(name);
 
-    // The browser will not tell us the MAC, so the operator records it here
-    // and the roster becomes the MAC -> drone mapping the picker cannot give us.
+    // Browsers refuse to expose a BLE MAC, so this is operator-entered and is
+    // the only thing that reliably tells two identical "pyDrone"s apart.
     const mac = document.createElement('input');
-    mac.className = 'rmac' + (entry.mac ? '' : ' unset');
+    mac.className = 'mac-in';
     mac.value = entry.mac || '';
     mac.placeholder = 'ac:a7:04:1f:53:9e';
     mac.spellcheck = false;
-    mac.setAttribute('aria-label', 'hardware MAC address');
-    mac.title = 'MAC printed by your controller — Web Bluetooth cannot read it, so enter it by hand';
     mac.addEventListener('change', () => {
       const raw = mac.value.trim();
-      if (!raw) { roster.setMac(entry.id, ''); renderRoster(); return; }
-      if (!roster.setMac(entry.id, raw)) {
-        mac.classList.add('bad');
-        log(`"${raw}" is not a MAC — expected 12 hex digits, e.g. ac:a7:04:1f:53:9e`, 'err');
-        return;
-      }
-      log(`${roster.label(roster.get(entry.id))} → ${normalizeMac(raw)}`, 'ok');
-      renderRoster();
+      if (!raw) { roster.setMac(entry.id, ''); renderDrones(); return; }
+      if (!roster.setMac(entry.id, raw)) { mac.classList.add('bad'); return; }
+      renderDrones();
     });
     mac.addEventListener('input', () => mac.classList.remove('bad'));
-    mac.addEventListener('keydown', (e) => { if (e.key === 'Enter') mac.blur(); });
     row.appendChild(mac);
 
-    const id = document.createElement('code');
-    id.className = 'rid';
-    id.textContent = String(entry.id).slice(0, 6);
-    id.title = `browser device id (not a MAC): ${entry.id}\nclick to copy`;
-    id.addEventListener('click', () => {
-      navigator.clipboard?.writeText(entry.id).then(
-        () => log(`copied device id ${entry.id}`),
-        () => log('clipboard blocked by the browser', 'warn')
-      );
-    });
-    row.appendChild(id);
-
     const go = document.createElement('button');
-    go.className = 'rbtn';
-    go.textContent = entry.id === activeId ? 'disconnect' : 'connect';
+    go.className = 'btn sm';
+    go.type = 'button';
+    go.textContent = entry.id === activeId ? T().disconnect : T().connect;
     go.addEventListener('click', () => {
       if (entry.id === activeId) drone.disconnect();
       else connectTo({ deviceId: entry.id });
@@ -179,204 +526,104 @@ function renderRoster() {
     row.appendChild(go);
 
     const drop = document.createElement('button');
-    drop.className = 'rbtn ghost';
-    drop.textContent = '×';
-    drop.title = 'forget this drone';
-    drop.addEventListener('click', () => {
-      roster.forget(entry.id);
-      log('forgotten — Chrome still holds the pairing until you revoke it in site settings', 'warn');
-      renderRoster();
-    });
+    drop.className = 'btn sm ghost';
+    drop.type = 'button';
+    drop.textContent = T().forget;
+    drop.addEventListener('click', () => { roster.forget(entry.id); renderDrones(); });
     row.appendChild(drop);
 
-    rosterEl.appendChild(row);
+    dronesEl.appendChild(row);
   }
 }
 
 async function connectTo(opts = {}) {
   if (drone.connected) await drone.disconnect();
   try {
-    await drone.connect({ ...opts, anyDevice: anyDeviceEl.checked });
+    await drone.connect(opts);
   } catch (err) {
-    if (err.name === 'NotFoundError') log('no device picked', 'warn');
-    else log(String(err.message || err), 'err');
+    if (err.name === 'NotFoundError') return;
+    log(String(err.message || err), 'bad');
   }
 }
 
-drone.addEventListener('status', (e) => log(`link: ${e.detail.phase} — ${e.detail.message}`));
-drone.addEventListener('error', (e) => log(`ble: ${e.detail.message || e.detail}`, 'err'));
+$('#btn-connect').addEventListener('click', () => {
+  if (drone.connected) { drone.disconnect(); return; }
+  const last = roster.list()[0];
+  connectTo(last ? { deviceId: last.id } : {});
+});
+$('#btn-add').addEventListener('click', () => connectTo({}));
+
+/* ── telemetry → plain words ───────────────────────────────────────── */
+
+const trim = { roll: 0, pitch: 0 };
+let trimmed = false;
+
+function paintLink() {
+  const flag = $('#flag-link');
+  const label = flag.querySelector('span');
+  const on = drone.connected;
+  flag.className = 'flag' + (on ? ' ok' : '');
+  label.textContent = on ? (roster.label(roster.get(activeId)) || T().ready) : T().notReady;
+  $('#btn-connect').querySelector('span').textContent = on ? T().disconnect : T().connect;
+  $('#btn-run').disabled = !on || editingPython;
+  $('#btn-runpy').disabled = !on || !editingPython;
+  $('#says').textContent = on ? '' : T().notConnected;
+}
 
 drone.addEventListener('connected', (e) => {
   const { id, name } = e.detail || {};
   activeId = id || null;
-  const entry = roster.remember({ id, name });
-  const label = roster.label(entry);
-
-  linkPill.dataset.state = 'live';
-  linkPill.lastElementChild.textContent = label;
-  btnConnect.textContent = 'Disconnect';
-  setFlightControlsEnabled(true);
-  renderRoster();
-  log(`connected to ${label} — transmitting at 20 Hz`, 'ok');
+  roster.remember({ id, name });
+  trimmed = false;
+  renderDrones();
+  paintLink();
+  log(`${roster.label(roster.get(activeId))} — ${T().ready}`);
 });
 
 drone.addEventListener('disconnected', () => {
   activeId = null;
-  linkPill.dataset.state = '';
-  linkPill.lastElementChild.textContent = 'offline';
-  battPill.dataset.state = '';
-  battPill.lastElementChild.textContent = '— V';
-  btnConnect.textContent = 'Connect';
-  setFlightControlsEnabled(false);
-  renderRoster();
-  log('disconnected', 'warn');
+  renderDrones();
+  paintLink();
+  $('#v-batt').textContent = '— V';
+  $('#battbar').style.width = '0%';
+  $('#v-tilt').textContent = '—';
 });
 
-btnConnect.addEventListener('click', () => {
-  if (drone.connected) { drone.disconnect(); return; }
-  // Prefer a silent reconnect to the last drone used; fall back to the picker.
-  const last = roster.list()[0];
-  connectTo(last ? { deviceId: last.id } : {});
+drone.addEventListener('error', (e) => log(String(e.detail?.message || e.detail), 'bad'));
+
+drone.addEventListener('telemetry', (e) => {
+  const t = e.detail;
+  // The very first frame becomes the level reference: this airframe reads a
+  // constant few degrees of roll at rest, which is mounting offset, not tilt.
+  if (!trimmed) { trim.roll = t.roll; trim.pitch = t.pitch; trimmed = true; }
+
+  const v = t.battery;
+  $('#v-batt').textContent = `${v.toFixed(2)} V`;
+  const pct = clamp(((v - 3.3) / (4.2 - 3.3)) * 100, 0, 100);
+  const bar = $('#battbar');
+  bar.style.width = `${pct}%`;
+  bar.classList.toggle('warn', v < 3.6);
+  $('#r-batt').className = 'row ' + (v < 3.6 ? 'warn' : 'good');
+  const battFlag = $('#flag-batt');
+  battFlag.className = 'flag ' + (v < 3.6 ? 'hot' : 'ok');
+  battFlag.querySelector('.n').textContent = `${v.toFixed(2)} V`;
+
+  const tilt = Math.max(Math.abs(t.roll - trim.roll), Math.abs(t.pitch - trim.pitch));
+  $('#v-tilt').textContent = tilt < 10 ? T().sYes : `${tilt.toFixed(0)}°`;
+  $('#r-flat').className = 'row ' + (tilt < 10 ? 'good' : 'warn');
+
+  // Calibration state is not in the telemetry frame — it is a physical check.
+  $('#v-blue').textContent = T().sCheck;
 });
 
-$('#btn-add').addEventListener('click', () => connectTo({}));
+/* ── keyboard flying ───────────────────────────────────────────────── */
 
-function setFlightControlsEnabled(on) {
-  for (const el of document.querySelectorAll('[data-needs-link]')) el.disabled = !on;
-}
-
-// Chrome only exposes getDevices() behind a flag on some versions; when it is
-// missing every connect falls back to the picker, so say so once rather than
-// letting "connect" silently reopen the dialog every time.
-Drone.known().then((known) => {
-  if (!navigator.bluetooth?.getDevices) {
-    log('this Chrome build cannot silently reconnect — every connect opens the picker', 'warn');
-  } else if (known.length) {
-    log(`${known.length} drone(s) already paired with this browser`, 'ok');
-  }
-});
-
-/* ── flight commands ───────────────────────────────────────────────── */
-
-const HOLD_MS = 1200;
-const btnTakeoff = $('#btn-takeoff');
-const fill = btnTakeoff.querySelector('.fill');
-let holdStart = 0, holdRaf = 0;
-
-function holdTick() {
-  const pct = clamp(((performance.now() - holdStart) / HOLD_MS) * 100, 0, 100);
-  fill.style.width = pct + '%';
-  if (pct >= 100) {
-    releaseHold(true);
-    return;
-  }
-  holdRaf = requestAnimationFrame(holdTick);
-}
-
-function releaseHold(fire) {
-  cancelAnimationFrame(holdRaf);
-  holdRaf = 0;
-  fill.style.width = '0%';
-  if (fire) {
-    btnTakeoff.classList.add('armed');
-    setTimeout(() => btnTakeoff.classList.remove('armed'), 600);
-    drone.takeoff();
-    log('TAKEOFF sent — motors arming', 'ok');
-  }
-}
-
-btnTakeoff.addEventListener('pointerdown', (e) => {
-  if (btnTakeoff.disabled) return;
-  btnTakeoff.setPointerCapture(e.pointerId);
-  holdStart = performance.now();
-  holdTick();
-});
-for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) {
-  btnTakeoff.addEventListener(ev, () => { if (holdRaf) releaseHold(false); });
-}
-
-$('#btn-land').addEventListener('click', () => { drone.land(); log('LAND sent', 'ok'); });
-
-function estop() {
-  py.abort();
-  drone.estop();
-  resetSticks();
-  log('EMERGENCY STOP', 'err');
-}
-$('#btn-estop').addEventListener('click', estop);
-
-$('#btn-trim').addEventListener('click', () => {
-  if (!drone.telemetry) { log('no telemetry to trim against', 'warn'); return; }
-  trim.roll = drone.telemetry.roll;
-  trim.pitch = drone.telemetry.pitch;
-  log(`trim captured: roll ${trim.roll.toFixed(2)}° pitch ${trim.pitch.toFixed(2)}° — display only, not sent to drone`, 'ok');
-});
-
-/* ── virtual sticks ────────────────────────────────────────────────── */
-
-// Left stick drives thrust/yaw, right drives pitch/roll — mode 2, as on the
-// stock pyController. Both spring back to centre: thrust is a relative trim
-// around hover, so a released stick must mean "hold", not "full down".
-const stickDefs = [
-  { el: $('#stick-left'),  x: 'yaw',  y: 'thrust' },
-  { el: $('#stick-right'), x: 'roll', y: 'pitch' },
-];
-
-for (const def of stickDefs) {
-  const knob = def.el.querySelector('.knob');
-  let active = null;
-
-  const show = (dx, dy) => {
-    knob.style.transform = `translate(${dx * 100}%, ${dy * 100}%)`;
-  };
-
-  const apply = (dx, dy) => {
-    show(dx, dy);
-    drone.setAxes({ [def.x]: dx * 100, [def.y]: -dy * 100 });
-  };
-
-  const move = (e) => {
-    if (active !== e.pointerId) return;
-    const r = def.el.getBoundingClientRect();
-    const dx = clamp(((e.clientX - r.left) / r.width - 0.5) * 2, -1, 1);
-    const dy = clamp(((e.clientY - r.top) / r.height - 0.5) * 2, -1, 1);
-    apply(dx, dy);
-  };
-
-  const end = (e) => {
-    if (active !== e.pointerId) return;
-    active = null;
-    def.el.classList.remove('hot');
-    apply(0, 0);
-  };
-
-  def.el.addEventListener('pointerdown', (e) => {
-    active = e.pointerId;
-    def.el.setPointerCapture(e.pointerId);
-    def.el.classList.add('hot');
-    move(e);
-  });
-  def.el.addEventListener('pointermove', move);
-  def.el.addEventListener('pointerup', end);
-  def.el.addEventListener('pointercancel', end);
-  def.el._show = show;
-  def.el._reset = () => apply(0, 0);
-}
-
-function resetSticks() {
-  for (const def of stickDefs) def.el._reset();
-}
-
-/* ── keyboard ──────────────────────────────────────────────────────── */
-
-// Left hand WASD (thrust / yaw), right hand IJKL (pitch / roll) — both hands
-// stay on the home row, and neither collides with the browser's own scrolling.
 const KEY_GAIN = 60;
 const keyMap = {
-  KeyW: ['thrust',  1], KeyS: ['thrust', -1],
-  KeyA: ['yaw',    -1], KeyD: ['yaw',     1],
-  KeyI: ['pitch',   1], KeyK: ['pitch',  -1],
-  KeyJ: ['roll',   -1], KeyL: ['roll',    1],
+  KeyW: ['thrust', 1], KeyS: ['thrust', -1],
+  KeyA: ['yaw', -1],   KeyD: ['yaw', 1],
+  KeyI: ['pitch', 1],  KeyK: ['pitch', -1],
+  KeyJ: ['roll', -1],  KeyL: ['roll', 1],
 };
 const held = new Set();
 
@@ -387,14 +634,12 @@ function pumpKeys() {
     if (m) axes[m[0]] = m[1] * KEY_GAIN;
   }
   drone.setAxes(axes);
-  // Mirror the keys onto the on-screen sticks so both inputs read the same.
-  for (const def of stickDefs) def.el._show(axes[def.x] / 100, -axes[def.y] / 100);
 }
 
 addEventListener('keydown', (e) => {
   if (e.target.matches('textarea, input') || e.target.isContentEditable) return;
-  if (e.code === 'Space') { e.preventDefault(); estop(); return; }
-  if (!keyMap[e.code]) return;
+  if (e.code === 'Space') { e.preventDefault(); stopEverything(); return; }
+  if (!keyMap[e.code] || running) return;
   e.preventDefault();
   held.add(e.code);
   pumpKeys();
@@ -403,97 +648,30 @@ addEventListener('keydown', (e) => {
 addEventListener('keyup', (e) => {
   if (!keyMap[e.code]) return;
   held.delete(e.code);
-  if (held.size === 0) { drone.neutral(); resetSticks(); }
+  if (held.size === 0) drone.neutral();
   else pumpKeys();
 });
 
 /* ── failsafes ─────────────────────────────────────────────────────── */
 
-// Losing focus must never leave a stick deflected. This is the single most
-// likely way to lose a drone from a browser UI.
-function panicNeutral(why) {
+function panic(why) {
   if (!drone.connected) return;
   held.clear();
+  abortFlag = true;
   drone.neutral();
-  resetSticks();
-  log(`sticks neutralised (${why})`, 'warn');
+  log(why, 'bad');
 }
-
-addEventListener('blur', () => panicNeutral('window blur'));
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) panicNeutral('tab hidden');
-});
-addEventListener('pointercancel', () => panicNeutral('pointer cancelled'));
-
-/* ── python panel ──────────────────────────────────────────────────── */
-
-const editor = $('#editor');
-const btnRun = $('#btn-run');
-const btnAbort = $('#btn-abort');
-
-const SNIPPETS = {
-  'hop': `# minimal: up, hover, down
-await drone.takeoff()
-await sleep(2)
-await drone.land()`,
-  'square': `# fly a square — props ON, needs ~2 m of clear space
-await drone.takeoff()
-await sleep(2)
-for heading in range(4):
-    print("leg", heading + 1)
-    await drone.hold(1.2, pitch=35)
-    await drone.hold(0.9, yaw=60)
-await drone.land()`,
-  'battery watch': `# poll telemetry, land if the pack sags
-await drone.takeoff()
-for i in range(40):
-    s = drone.state
-    print(f"{i:>3}  batt={s['battery']:.2f}V  roll={s['roll']:.1f}  pitch={s['pitch']:.1f}")
-    if s['battery'] < 3.5:
-        print("pack sagging — landing")
-        break
-    await sleep(0.25)
-await drone.land()`,
-  'bench (no props)': `# safe on a bench with props removed:
-# read attitude without ever arming the motors
-for i in range(20):
-    s = drone.state
-    print(f"roll={s['roll']:>7.2f}  pitch={s['pitch']:>7.2f}  yaw={s['yaw']:>8.2f}  batt={s['battery']:.2f}V")
-    await sleep(0.3)`,
-};
-
-const snipBar = $('#snips');
-for (const [name, code] of Object.entries(SNIPPETS)) {
-  const b = document.createElement('button');
-  b.className = 'snip';
-  b.textContent = name;
-  b.addEventListener('click', () => { editor.value = code; editor.focus(); });
-  snipBar.appendChild(b);
-}
-editor.value = SNIPPETS['bench (no props)'];
-
-btnRun.addEventListener('click', async () => {
-  btnRun.disabled = true;
-  btnAbort.disabled = false;
-  try { await py.run(editor.value); }
-  finally {
-    btnRun.disabled = !drone.connected;
-    btnAbort.disabled = true;
-    resetSticks();
-  }
-});
-
-btnAbort.addEventListener('click', () => py.abort());
+addEventListener('blur', () => panic(T().aborted));
+document.addEventListener('visibilitychange', () => { if (document.hidden) panic(T().aborted); });
 
 /* ── boot ──────────────────────────────────────────────────────────── */
 
 if (!Drone.supported) {
   $('#compat').classList.remove('hidden');
-  btnConnect.disabled = true;
-  log('Web Bluetooth not available in this browser', 'err');
-} else {
-  log('ground station ready — press Connect and pick "pyDrone"');
+  $('#btn-connect').disabled = true;
+  $('#btn-add').disabled = true;
 }
-setFlightControlsEnabled(false);
-paintAttitude(0, 0);
-renderRoster();
+
+applyLang(DEFAULT_LANG);
+renderDrones();
+paintLink();

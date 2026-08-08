@@ -1,180 +1,141 @@
-# pyDrone Ground Station
+# 紙飛行俱樂部 · Paper Flight Club
 
-A Web Bluetooth ground control station for the [01Studio pyDrone](https://wiki.01studio.cc/en/docs/pydrone/),
-built to run as a static GitHub Pages site. Live telemetry, virtual sticks, and
-in-browser Python scripting — no install, no native app.
+Fly an [01Studio pyDrone](https://wiki.01studio.cc/en/docs/pydrone/) from a web
+page, by snapping bricks together and reading the real Python they generate.
+Built for 8–12 year olds. Static site, no install, no build step.
+
+Interface is Traditional Chinese (Taiwan) by default, with an English toggle.
 
 ## Browser support
 
-**Chrome or Edge only** (desktop or Android). Safari and Firefox do not implement
-the Web Bluetooth API and cannot connect. The page must be served over HTTPS or
-`localhost`; GitHub Pages satisfies this.
+**Chrome or Edge only** (desktop or Android). Safari and Firefox do not
+implement Web Bluetooth and cannot connect at all. The page must be served over
+HTTPS or `localhost`; GitHub Pages satisfies that.
 
 ## Run locally
 
 ```bash
-npm run serve          # http://localhost:8765
-npm test               # protocol tests
+npm run serve      # http://localhost:8765
+npm test           # 73 tests
 ```
 
-ES modules require a real server — opening `index.html` from `file://` will not work.
+ES modules need a real server — opening `index.html` from `file://` will not work.
 
-## Deploy
+## How it fits together
 
-Push to a repo and enable Pages (Settings → Pages → deploy from branch, root).
-No build step; everything is static.
+```
+index.html        page shell + inlined Lucide icon sprite
+css/paper.css     the craft-table look
+js/protocol.js    BLE frame encode/decode — pure, no I/O
+js/drone.js       connection, 20 Hz transmit loop, failsafes
+js/roster.js      known drones, aliases, operator-entered MACs
+js/moves.js       forward / turn_right / land — built on raw stick axes
+js/bricks.js      brick model, Python codegen, brick outline geometry
+js/i18n.js        zh-TW and en strings
+js/pyrt.js        Pyodide runtime, exposing the same verbs as the bricks
+js/ui.js          wiring
+test/             73 tests over the pure modules and the page wiring
+```
 
-## Picking a drone
+Bricks and Python are two views of **one** program: `bricks.js` compiles the node
+list to Python, and every generated line carries the id of the brick that made
+it, so pressing Fly it lights a brick and its line together. Both run through
+`moves.js`, so a child gets the same behaviour whichever half they touch.
 
-Every pyDrone advertises the same BLE name, so Chrome's device picker shows
-identical rows and you cannot tell which airframe you are about to arm. The
-**Fleet** panel solves this:
+## Two ways to run
 
-1. **Add drone** opens the picker and pairs one.
-2. Give it an alias inline (masking tape colour, tail number, whatever).
-3. From then on, connecting by alias goes straight to that device — the picker
-   never opens, because the browser already holds permission for that `device.id`.
+**Fly it** executes the bricks directly in JavaScript. Instant, no download.
 
-Aliases live in `localStorage`, keyed by `device.id`. That id is stable per
-browser profile but differs across machines and profiles, so the roster is
-per-browser by design — it is not synced and does not travel with the drone.
+**Edit the Python** switches to a text editor and loads Pyodide (~10 MB, cached
+after the first time) so the code really is Python. Editing the Python detaches
+it from the bricks — the page says so plainly rather than silently discarding
+one side.
 
-### MAC addresses
+## Tuning — read this before a class
 
-**A browser cannot read a BLE MAC address.** Web Bluetooth withholds it by design
-as an anti-tracking measure, and on macOS the OS never exposes it to any
-application — CoreBluetooth hands out a per-host UUID instead. There is no flag,
-no permission, and no API that changes this. The drone also advertises no Device
-Information service, so it cannot be read out of GATT either.
+`js/moves.js` turns child-friendly verbs into stick deflections. One constant is
+a **guess and must be measured** on your airframe:
 
-What Chrome gives you is `device.id`: an opaque identifier, stable for one browser
-profile and one origin, different on every other machine. It is shown as the grey
-code on each roster row and copies to the clipboard on click.
+```js
+yawRateDegPerSec: 90   // degrees per second at yawPower
+```
 
-So the MAC field is **operator-supplied**. Type in the address your controller
-displays and the roster becomes the MAC-to-drone map the picker cannot give you.
-Input is accepted in any format — `ac:a7:04:1f:53:9e`, `AC-A7-04-1F-53-9E`,
-`aca7041f539e` — and canonicalised to lowercase colon form.
+`turn_right(90)` holds the yaw stick for `degrees / yawRateDegPerSec` seconds. If
+your drone over- or under-rotates, time a full circle and correct this number.
+Everything else (`pitchPower`, `settleAfterTakeoff`, …) is in the same object.
 
-**Show every BLE device** widens the picker past the `pyDrone` name prefix, for
-a drone whose advertised name has been changed in firmware. Anything without a
-Nordic UART service is rejected on connect with a clear error rather than
-hanging.
-
-**Forget** drops it from the roster only. Chrome keeps the underlying pairing
-until you revoke it in the site's own permission settings.
+There is no closed loop here: the drone reports attitude, but these moves are
+open-loop timed holds. A square will drift.
 
 ## The protocol
 
-Reverse-engineered against the hardware, because the vendor docs are partial and
-their byte numbering is 1-indexed in a way that is easy to misread.
+Reverse-engineered against the hardware; the vendor docs are partial and their
+byte numbering is 1-indexed in a way that is easy to misread.
 
-**Transport:** Nordic UART Service over BLE. The drone advertises as `pyDrone`.
+**Transport:** Nordic UART over BLE, advertised as `pyDrone`.
+Service `6e400001-…`, write `6e400002-…`, notify `6e400003-…`.
 
-| UUID | Direction |
-|---|---|
-| `6e400001-b5a3-f393-e0a9-e50e24dcca9e` | service |
-| `6e400002-…` | write — control frames |
-| `6e400003-…` | notify — telemetry |
-
-**Control frame — 8 bytes:**
+**Control frame, 8 bytes:**
 
 ```
-[0] header (always 128, NOT an axis — the drone never echoes it)
-[1] roll     [2] pitch     [3] yaw     [4] thrust
-[5] buttons  [6] unused    [7] unused
+[0] header (always 128 — NOT an axis; the drone never echoes it)
+[1] roll  [2] pitch  [3] yaw  [4] thrust  [5] buttons  [6][7] unused
 ```
 
-Axis bytes decode on the drone as `≤100 → v−100`, `100–155 → 0`, `>155 → v−155`,
-giving −100..100 with a deadzone around centre. Thrust is special: the drone reports
-it as a **percentage centred on 50**, i.e. `pct = 50 + axis/2`.
+Axes decode on the drone as `≤100 → v−100`, `100–155 → 0`, `>155 → v−155`.
+Thrust is a **percentage centred on 50**: `pct = 50 + axis/2`.
+Buttons: `24` take off · `72` land · `40` aux · `136` emergency stop.
 
-Buttons: `24` takeoff · `72` land · `40` aux · `136` emergency stop.
+**Telemetry, 18 bytes** — nine big-endian `uint16` biased by `+32768`:
+`roll×100, pitch×100, yaw×100, in_roll×10, in_pitch×10, in_yaw×200, thrust%, battery×100, baro`.
 
-**Telemetry — 18 bytes**, nine big-endian `uint16` each biased by `+32768`:
+The drone is **poll-response**: it sends nothing until you send a frame, so the
+20 Hz transmit loop doubles as the link heartbeat.
 
-```
-roll×100  pitch×100  yaw×100  in_roll×10  in_pitch×10  in_yaw×200
-thrust%   battery×100  baro
-```
+## Picking a drone
 
-The drone is **poll-response**: it sends nothing until you send a control frame.
-The 20 Hz transmit loop is therefore also the link heartbeat.
+Every pyDrone advertises the same BLE name, so Chrome's picker shows
+indistinguishable rows. Pair each one once, give it a name, and connecting by
+that row afterwards skips the picker entirely.
+
+**Browsers cannot read a BLE MAC address** — Web Bluetooth withholds it as an
+anti-tracking measure and macOS never exposes it to any application. Chrome only
+offers an opaque per-profile `device.id`. So the MAC field is operator-entered:
+type in what the controller shows and the roster becomes your MAC-to-drone map.
+Any format is accepted and canonicalised.
 
 ## Operating notes
 
-Learned the hard way on real hardware:
+Learned on real hardware, and repeated in the page in child-friendly words:
 
-- **Calibrate before anything.** Level surface, press reset, wait ~10 s for the blue
-  LED to go **solid**. Green LED only means the BLE link is up. Without a solid blue
-  the drone stays locked and silently ignores takeoff.
-- **Thrust does nothing while landed.** The firmware accepts and echoes the value but
-  does not route it to the motors. The only way to spin props is a real `take_off()` —
-  there is no bench-test or motor-only mode in this protocol.
-- **Props off for first tests.** Motor torque alone is enough to skitter and flip the
+- **Calibrate first.** Level surface, press reset, wait for **solid blue**.
+  Green only means the BLE link is up. Without solid blue the drone stays locked
+  and silently ignores take off.
+- **Thrust does nothing while landed.** The firmware accepts and echoes the
+  value but does not route it to the motors. Only a real `take_off()` spins them
+  — there is no bench-test mode in this protocol.
+- **Props off while coding.** Motor torque alone will skitter and flip the
   airframe on a desk.
-- **Watch the battery under load.** A 400 mAh 1S sagging from 3.85 V to ~3.0 V on
-  spin-up points at a stalling or damaged motor.
-- **`baro` is noise on the bench.** It swings ±100 counts from vibration with no props
-  fitted. Do not treat it as height. Flagged with a ⚠ in the UI for that reason.
-- **IMU mounting offset is real.** A constant few degrees of roll at rest survives a
-  successful calibration. Use the **Trim** button to zero the *display*; it does not
-  send anything to the drone.
-- The firmware cuts motors on its own past **60°** of tilt.
+- **Watch the battery under load.** 3.85 V sagging to ~3.0 V on spin-up points
+  at a stalling or damaged motor.
+- **`baro` is noise on the bench** — it swings ±100 counts from vibration with
+  no props fitted. Not exposed in the UI for that reason.
+- **IMU mounting offset is real.** A constant few degrees of roll at rest
+  survives a good calibration, so the first telemetry frame is taken as the
+  level reference.
+- The firmware cuts motors itself past **60°** of tilt.
 
 ## Failsafes
 
-- E-STOP is always reachable, including the space bar, and zeroes the sticks in the
-  same frame as the stop byte.
-- Takeoff is press-and-hold (1.2 s) so it cannot be triggered by a stray click.
-- Window blur, tab hide, and pointer-cancel all neutralise the sticks immediately.
-- A running Python script is aborted by E-STOP, and the sticks are neutralised in a
-  `finally` block whatever way the script exits.
-
-## Python scripting
-
-The drone firmware has **no REPL over BLE** — it only speaks the fixed binary protocol
-above. So Python runs in the browser via Pyodide and drives the BLE link from there.
-Pyodide (~10 MB) loads lazily on first Run and is cached afterwards.
-
-```python
-await drone.takeoff(settle=3.0)
-await drone.land(settle=3.0)
-drone.stop()                              # emergency, cuts motors
-drone.set(roll=0, pitch=0, yaw=0, thrust=0)   # each -100..100
-drone.neutral()
-await drone.hold(1.2, pitch=35)           # apply, wait, recentre
-await sleep(0.25)                         # abort-aware
-drone.state                               # dict of live telemetry
-drone.battery                             # volts
-drone.connected
-```
-
-Top-level `await` is supported — the editor body is wrapped in a coroutine.
+- Stop is always reachable — the red button or the spacebar — and zeroes the
+  sticks in the same frame as the stop byte.
+- Window blur and tab-hide neutralise the sticks and abort a running program.
+- `runOrder` is capped, so a nested loop cannot hang the page before a child can
+  press Stop.
+- Move durations are clamped to 30 s: a typo cannot fly away for an hour.
+- Every run path ends in a `finally` that recentres the sticks.
 
 ## Keyboard
 
-| Keys | Axis |
-|---|---|
-| `W` / `S` | thrust up / down |
-| `A` / `D` | yaw left / right |
-| `I` / `K` | pitch forward / back |
-| `J` / `L` | roll left / right |
-| `Space` | emergency stop |
-
-Both hands stay on the home row, and nothing collides with browser scrolling.
-Keys deflect to 60% and mirror onto the on-screen sticks. They are ignored while
-a text field has focus, so typing a script or an alias can never fly the drone.
-
-## Layout
-
-```
-index.html          page shell
-css/station.css     styling
-js/protocol.js      pure encode/decode, no I/O — tested
-js/roster.js        known-drone list and aliases — tested
-js/drone.js         BLE connection, 20 Hz transmit loop, failsafes
-js/pyrt.js          Pyodide runtime and the Python-facing API
-js/ui.js            dashboard, sticks, keyboard, wiring
-test/               protocol + roster tests, incl. real captured frames
-```
+`W`/`S` up-down · `A`/`D` turn · `I`/`K` forward-back · `J`/`L` slide · `Space` stop.
+Ignored while a text field has focus, so typing never flies the drone.

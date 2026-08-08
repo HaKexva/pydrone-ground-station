@@ -1,198 +1,202 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-TW">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>pyDrone · Ground Station</title>
-<meta name="description" content="Web Bluetooth ground control station for the 01Studio pyDrone — live telemetry, virtual sticks, and Python flight scripting.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🛸</text></svg>">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/station.css">
+<title>紙飛行俱樂部 · Paper Flight Club</title>
+<meta name="description" content="用積木和 Python 控制 pyDrone 無人機。給 8–12 歲的孩子。Fly a pyDrone with bricks and real Python.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>&#9986;</text></svg>">
+<link rel="stylesheet" href="css/paper.css">
 </head>
 <body>
-<div class="shell">
 
-  <header class="masthead">
-    <div class="brand">
-      <h1>py<em>Drone</em> Ground Station</h1>
-      <div class="sub">01studio · esp32-s3 · nordic uart over ble</div>
-      <div class="linkstrip">
-        <span class="pill" id="pill-link"><i class="dot"></i><span>offline</span></span>
-        <span class="pill" id="pill-batt"><i class="dot"></i><span>— V</span></span>
-        <span class="pill" id="pill-rate"><i class="dot"></i><span>0 f/s</span></span>
-      </div>
+<!-- Lucide icons, inlined rather than loaded from a CDN so the page still
+     works on a classroom network that blocks or throttles outside requests. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6" rx="1"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"/></symbol>
+  <symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></symbol>
+  <symbol id="i-rocket" viewBox="0 0 24 24"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91 0z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></symbol>
+  <symbol id="i-land" viewBox="0 0 24 24"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></symbol>
+  <symbol id="i-forward" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></symbol>
+  <symbol id="i-turn" viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></symbol>
+  <symbol id="i-turnl" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="m17 11-5-5-5 5"/><path d="m17 18-5-5-5 5"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="m7 6 5 5 5-5"/><path d="m7 13 5 5 5-5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+  <symbol id="i-repeat" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></symbol>
+  <symbol id="i-battery" viewBox="0 0 24 24"><rect x="2" y="7" width="16" height="10" rx="2" ry="2"/><line x1="22" x2="22" y1="11" y2="13"/><line x1="6" x2="6" y1="11" y2="13"/><line x1="10" x2="10" y1="11" y2="13"/><line x1="14" x2="14" y1="11" y2="13"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
+  <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></symbol>
+  <symbol id="i-rotate" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></symbol>
+  <symbol id="i-bluetooth" viewBox="0 0 24 24"><path d="m7 7 10 10-5 5V2l5 5L7 17"/></symbol>
+  <symbol id="i-radio" viewBox="0 0 24 24"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.2 19.1 19.1"/></symbol>
+  <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></symbol>
+  <symbol id="i-keyboard" viewBox="0 0 24 24"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="M6 8h.001"/><path d="M10 8h.001"/><path d="M14 8h.001"/><path d="M18 8h.001"/><path d="M8 12h.001"/><path d="M12 12h.001"/><path d="M16 12h.001"/><path d="M7 16h10"/></symbol>
+  <symbol id="i-python" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></symbol>
+</svg>
+
+<div class="sheet">
+
+  <header class="top">
+    <div>
+      <h1><span data-i="title1"></span><span class="hot" data-i="title2"></span></h1>
+      <p class="sub" data-i="sub"></p>
     </div>
-    <div class="masthead-right">
-      <button class="estop" id="btn-estop">Stop<small>space bar</small></button>
+    <div class="topright">
+      <div class="lang" role="group" aria-label="Language / 語言">
+        <button id="lang-zh" aria-pressed="true">中文</button>
+        <button id="lang-en" aria-pressed="false">EN</button>
+      </div>
+      <div class="who" data-i="age"></div>
     </div>
   </header>
 
-  <div class="notice bad hidden" id="compat">
-    <strong>Web Bluetooth unavailable.</strong> This page needs Chrome or Edge on desktop or Android.
-    Safari and Firefox do not implement the Web Bluetooth API and cannot talk to the drone.
+  <div class="note warn hidden" id="compat" data-i-html="needChrome"></div>
+
+  <section class="card sky">
+    <h2><svg class="ic lg"><use href="#i-bluetooth"/></svg> <span data-i="whichDrone"></span></h2>
+    <div class="inner">
+      <div class="btnrow">
+        <button class="btn go" id="btn-connect"><svg class="ic"><use href="#i-bluetooth"/></svg> <span data-i="connect"></span></button>
+        <button class="btn sm" id="btn-add"><svg class="ic"><use href="#i-plus"/></svg> <span data-i="addDrone"></span></button>
+      </div>
+      <div class="drones" id="drones"></div>
+      <p class="note" data-i-html="macNote"></p>
+    </div>
+  </section>
+
+  <div class="split">
+
+    <section class="card">
+      <h2><svg class="ic lg"><use href="#i-grip"/></svg> <span data-i="bricksTitle"></span> <em data-i="bricksHint"></em></h2>
+      <div class="inner">
+        <div class="stack" id="stack"></div>
+        <div class="palette" id="palette"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2><svg class="ic lg"><use href="#i-pen"/></svg> <span data-i="pyTitle"></span> <em data-i="pyHint"></em></h2>
+      <div class="inner">
+        <div class="code-shell">
+          <div class="code-tabs">
+            <button class="tab" aria-selected="true">square.py</button>
+          </div>
+          <pre class="code" id="code"></pre>
+          <textarea class="editor hidden" id="editor" spellcheck="false" autocomplete="off"></textarea>
+        </div>
+        <div class="note warn hidden" id="edit-warn" data-i-html="editWarning"></div>
+        <div class="btnrow">
+          <button class="btn sm ghost" id="btn-edit"><svg class="ic"><use href="#i-pen"/></svg> <span data-i="editPython"></span></button>
+          <button class="btn sm ghost hidden" id="btn-unedit"><svg class="ic"><use href="#i-grip"/></svg> <span data-i="backToBricks"></span></button>
+          <button class="btn sm ghost hidden" id="btn-runpy" disabled><svg class="ic"><use href="#i-python"/></svg> <span data-i="runPython"></span></button>
+        </div>
+        <p class="tip" data-i-html="tip"></p>
+        <div class="log" id="log"></div>
+      </div>
+    </section>
   </div>
 
-  <main class="grid">
-
-    <!-- ── left: flight ────────────────────────────────────────── -->
-    <div class="stack">
-
-      <section class="panel">
-        <header>
-          <h2>Attitude &amp; State</h2>
-          <span class="hint">18-byte frame · 20 Hz</span>
-        </header>
-        <div class="body">
-          <div class="instruments">
-            <div class="horizon-wrap">
-              <svg viewBox="-100 -100 200 200" aria-label="artificial horizon">
-                <g id="ah-horizon">
-                  <rect x="-300" y="-300" width="600" height="300" fill="#0a2f36"/>
-                  <rect x="-300" y="0"    width="600" height="300" fill="#2c1e0d"/>
-                  <line x1="-300" y1="0" x2="300" y2="0" stroke="#ffb020" stroke-width="1.6"/>
-                  <g stroke="#7d8f89" stroke-width="1" font-family="IBM Plex Mono" font-size="7" fill="#7d8f89">
-                    <line x1="-22" y1="-48" x2="22" y2="-48"/><text x="26" y="-45.5">30</text>
-                    <line x1="-15" y1="-32" x2="15" y2="-32"/><text x="19" y="-29.5">20</text>
-                    <line x1="-22" y1="-16" x2="22" y2="-16"/><text x="26" y="-13.5">10</text>
-                    <line x1="-22" y1="16"  x2="22" y2="16"/><text x="26" y="18.5">10</text>
-                    <line x1="-15" y1="32"  x2="15" y2="32"/><text x="19" y="34.5">20</text>
-                    <line x1="-22" y1="48"  x2="22" y2="48"/><text x="26" y="50.5">30</text>
-                  </g>
-                </g>
-                <g id="ah-roll" stroke="#586862" stroke-width="1.4" fill="none">
-                  <path d="M0,-88 l-5,-9 l10,0 z" fill="#35e08b" stroke="none"/>
-                </g>
-                <g stroke="#35e08b" stroke-width="2.4" fill="none">
-                  <path d="M-34,0 l16,0 l6,7 l6,-7 l16,0"/>
-                </g>
-                <circle cx="0" cy="0" r="92" fill="none" stroke="#222b27" stroke-width="14"/>
-              </svg>
-            </div>
-
-            <div class="readouts">
-              <div class="cell"><div class="k">Roll</div><div class="v" id="v-roll">  0.00<span>°</span></div></div>
-              <div class="cell"><div class="k">Pitch</div><div class="v" id="v-pitch">  0.00<span>°</span></div></div>
-              <div class="cell"><div class="k">Yaw</div><div class="v" id="v-yaw">  0.0<span>°</span></div></div>
-              <div class="cell"><div class="k">Thrust</div><div class="v" id="v-thrust">50<span>%</span></div></div>
-              <div class="cell"><div class="k">Battery</div><div class="v" id="v-batt">0.00<span>V</span></div></div>
-              <div class="cell suspect"><div class="k">Baro</div><div class="v" id="v-alt">0<span>raw</span></div></div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel">
-        <header>
-          <h2>Fleet</h2>
-          <span class="hint">aliases stored in this browser</span>
-        </header>
-        <div class="body stack">
-          <div class="cmdrow">
-            <button class="btn primary" id="btn-connect">Connect<small>last used drone</small></button>
-            <button class="btn" id="btn-add">Add drone<small>opens picker</small></button>
-          </div>
-          <label class="toggle">
-            <input type="checkbox" id="any-device">
-            <span>Show every BLE device in the picker
-              <small>use if a drone was renamed away from “pyDrone”</small></span>
-          </label>
-          <div class="roster" id="roster"></div>
-          <div class="notice">
-            <strong>Browsers cannot read a BLE MAC address.</strong> Web Bluetooth withholds it by
-            design, and on macOS the OS never exposes it at all — Chrome only hands out an opaque
-            per-profile id (the grey code, click to copy). So enter the MAC your controller shows
-            in the amber field and the roster becomes your MAC-to-drone map. Pair each drone once,
-            label it, then connect by that row — it skips the picker entirely.
-          </div>
-        </div>
-      </section>
-
-      <section class="panel">
-        <header>
-          <h2>Command</h2>
-          <span class="hint">takeoff = press &amp; hold</span>
-        </header>
-        <div class="body stack">
-          <div class="cmdrow">
-            <button class="btn primary hold" id="btn-takeoff" data-needs-link>
-              <span class="fill"></span>Take off<small>hold 1.2 s</small>
-            </button>
-            <button class="btn" id="btn-land" data-needs-link>Land<small>gradual descent</small></button>
-            <button class="btn" id="btn-trim" data-needs-link>Trim<small>zero the display</small></button>
-          </div>
-
-          <div class="notice">
-            <strong>Props off for first tests.</strong> Thrust is ignored until the drone is armed,
-            so the only way to spin motors is a real <code>take_off()</code>. Calibrate first —
-            level surface, press reset, wait for the blue LED to go solid — or the drone stays locked.
-          </div>
-
-          <div class="sticks">
-            <div class="stick" id="stick-left">
-              <span class="keys">wasd</span>
-              <span class="tag n"><b>W</b> thr +</span><span class="tag s"><b>S</b> thr −</span>
-              <span class="tag w"><b>A</b> yaw ←</span><span class="tag e"><b>D</b> yaw →</span>
-              <div class="knob"></div>
-            </div>
-            <div class="stick" id="stick-right">
-              <span class="keys">ijkl</span>
-              <span class="tag n"><b>I</b> pitch ↑</span><span class="tag s"><b>K</b> pitch ↓</span>
-              <span class="tag w"><b>J</b> roll ←</span><span class="tag e"><b>L</b> roll →</span>
-              <div class="knob"></div>
-            </div>
-          </div>
-        </div>
-      </section>
+  <div class="runbar">
+    <button class="btn go" id="btn-run" disabled><svg class="ic"><use href="#i-play"/></svg> <span data-i="flyIt"></span></button>
+    <button class="btn stop" id="btn-stop"><svg class="ic"><use href="#i-stop"/></svg> <span data-i="stopNow"></span></button>
+    <span class="spacer"></span>
+    <div class="flags">
+      <span class="flag" id="flag-link"><svg class="ic"><use href="#i-bluetooth"/></svg> <span data-i="notReady"></span></span>
+      <span class="flag" id="flag-batt"><svg class="ic"><use href="#i-battery"/></svg> <span class="n">— V</span></span>
+      <span class="flag hot"><svg class="ic"><use href="#i-rotate"/></svg> <span data-i="propsOff"></span></span>
     </div>
+  </div>
 
-    <!-- ── right: python ───────────────────────────────────────── -->
-    <div class="stack">
-      <section class="panel">
-        <header>
-          <h2>Flight Script · Python</h2>
-          <span class="hint">pyodide · runs in-browser</span>
-        </header>
-        <div class="body">
-          <div class="snips" id="snips"></div>
-          <div class="editor-wrap">
-            <textarea class="editor" id="editor" spellcheck="false" autocomplete="off"></textarea>
-          </div>
-          <div class="cmdrow" style="margin-top:10px">
-            <button class="btn primary" id="btn-run" data-needs-link>Run<small>top-level await ok</small></button>
-            <button class="btn" id="btn-abort" disabled>Abort<small>neutralise sticks</small></button>
-          </div>
-          <div class="console" id="console"></div>
+  <div class="split">
+    <section class="card">
+      <h2><svg class="ic lg"><use href="#i-radio"/></svg> <span data-i="saysTitle"></span></h2>
+      <div class="inner">
+        <div class="portrait">
+          <svg class="art" viewBox="0 0 200 150" role="img" aria-label="paper drone">
+            <g class="bob">
+              <ellipse cx="100" cy="132" rx="42" ry="6" fill="var(--ink)" opacity=".13"/>
+              <g stroke="var(--ink)" stroke-width="3.5" stroke-linecap="round">
+                <line x1="72" y1="72" x2="44" y2="52"/><line x1="128" y1="72" x2="156" y2="52"/>
+                <line x1="72" y1="88" x2="46" y2="102"/><line x1="128" y1="88" x2="154" y2="102"/>
+              </g>
+              <g class="rotor" style="transform-origin:44px 52px"><ellipse cx="44" cy="52" rx="24" ry="5" fill="var(--sky)" stroke="var(--ink)" stroke-width="3"/></g>
+              <g class="rotor" style="transform-origin:156px 52px"><ellipse cx="156" cy="52" rx="24" ry="5" fill="var(--sky)" stroke="var(--ink)" stroke-width="3"/></g>
+              <g class="rotor" style="transform-origin:46px 102px"><ellipse cx="46" cy="102" rx="24" ry="5" fill="var(--sky)" stroke="var(--ink)" stroke-width="3"/></g>
+              <g class="rotor" style="transform-origin:154px 102px"><ellipse cx="154" cy="102" rx="24" ry="5" fill="var(--sky)" stroke="var(--ink)" stroke-width="3"/></g>
+              <rect x="68" y="62" width="64" height="40" rx="14" fill="var(--tomato)" stroke="var(--ink)" stroke-width="3.5"/>
+              <circle cx="86" cy="79" r="6.5" fill="#FFFBF2" stroke="var(--ink)" stroke-width="2.5"/>
+              <circle cx="114" cy="79" r="6.5" fill="#FFFBF2" stroke="var(--ink)" stroke-width="2.5"/>
+              <circle cx="87.5" cy="80" r="2.6" fill="var(--ink)"/>
+              <circle cx="115.5" cy="80" r="2.6" fill="var(--ink)"/>
+            </g>
+          </svg>
         </div>
-      </section>
+        <p class="note" id="says" data-i="notConnected"></p>
+      </div>
+    </section>
 
-      <section class="panel">
-        <header><h2>API</h2><span class="hint">in scope as <code>drone</code></span></header>
-        <div class="body">
-          <div class="console" style="height:auto;margin:0">await drone.takeoff(settle=3.0)
-await drone.land(settle=3.0)
-drone.stop()                     # emergency, cuts motors
-drone.set(roll=, pitch=, yaw=, thrust=)   # each -100..100
-drone.neutral()
-await drone.hold(secs, pitch=35) # apply, wait, recentre
-await sleep(secs)                # abort-aware
-drone.state                      # dict: roll pitch yaw thrust battery alt
-drone.battery                    # volts
-drone.connected</div>
+    <section class="card">
+      <h2><svg class="ic lg"><use href="#i-gauge"/></svg> <span data-i="howTitle"></span></h2>
+      <div class="inner">
+        <div class="status">
+          <div class="row" id="r-batt">
+            <span class="ico"><svg class="ic xl"><use href="#i-battery"/></svg></span>
+            <span class="lbl"><span data-i="sBatt"></span><em data-i="sBattSub"></em></span>
+            <span class="val" id="v-batt">— V</span>
+            <span class="meter"><i id="battbar" style="width:0%"></i></span>
+          </div>
+          <div class="row" id="r-flat">
+            <span class="ico"><svg class="ic xl"><use href="#i-gauge"/></svg></span>
+            <span class="lbl"><span data-i="sFlat"></span><em data-i="sFlatSub"></em></span>
+            <span class="val" id="v-tilt">—</span>
+          </div>
+          <div class="row" id="r-blue">
+            <span class="ico"><svg class="ic xl"><use href="#i-bulb"/></svg></span>
+            <span class="lbl"><span data-i="sBlue"></span><em data-i="sBlueSub"></em></span>
+            <span class="val" id="v-blue">—</span>
+          </div>
+          <div class="row warn">
+            <span class="ico"><svg class="ic xl"><use href="#i-rotate"/></svg></span>
+            <span class="lbl"><span data-i="sProp"></span><em data-i="sPropSub"></em></span>
+            <span class="val" data-i="sCheck"></span>
+          </div>
         </div>
-      </section>
+      </div>
+    </section>
+  </div>
+
+  <section class="card leaf">
+    <h2><svg class="ic lg"><use href="#i-keyboard"/></svg> <span data-i="manualTitle"></span> <em data-i="manualSub"></em></h2>
+    <div class="inner">
+      <div class="keys">
+        <span class="keyrow"><span class="kbd">W</span><span class="kbd">S</span> <span data-i="kThrust"></span></span>
+        <span class="keyrow"><span class="kbd">A</span><span class="kbd">D</span> <span data-i="kYaw"></span></span>
+        <span class="keyrow"><span class="kbd">I</span><span class="kbd">K</span> <span data-i="kPitch"></span></span>
+        <span class="keyrow"><span class="kbd">J</span><span class="kbd">L</span> <span data-i="kRoll"></span></span>
+        <span class="keyrow"><span class="kbd">space</span> <span data-i="kStop"></span></span>
+      </div>
     </div>
-  </main>
+  </section>
 
-  <p class="footnote">
-    Protocol measured against hardware, not vendor-supplied — 8-byte control frame
-    <code>[hdr, roll, pitch, yaw, thrust, buttons, 0, 0]</code>, byte 0 is a header and not an axis.
-    Buttons: 24 takeoff · 72 land · 40 aux · 136 stop. Sticks map
-    <code>≤100 → v−100</code>, <code>100–155 → 0</code>, <code>&gt;155 → v−155</code>.
-    Telemetry is 9 big-endian uint16 biased by +32768. Baro is flagged because it reads noise on the bench.
-    Hardware notes: <a href="https://wiki.01studio.cc/en/docs/pydrone/">01studio wiki</a>.
-  </p>
+  <section class="card hot check">
+    <h2><svg class="ic lg"><use href="#i-wrench"/></svg> <span data-i="checkTitle"></span></h2>
+    <div class="inner">
+      <ol>
+        <li data-i-html="c1"></li>
+        <li data-i-html="c2"></li>
+        <li data-i-html="c3"></li>
+        <li data-i-html="c4"></li>
+      </ol>
+    </div>
+  </section>
+
+  <p class="foot" data-i="foot"></p>
 </div>
 
 <script type="module" src="js/ui.js"></script>
