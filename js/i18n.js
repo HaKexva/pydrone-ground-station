@@ -7,7 +7,6 @@ export const DEFAULT_LANG = 'zh-TW';
 export const STRINGS = {
   'zh-TW': {
     title1: '紙飛行', title2: '俱樂部',
-    sub: '把積木拼起來，旁邊就會出現真正的 Python 程式碼。然後讓真的無人機照著你寫的做——就算那不是你本來想的。',
     age: '8–12 歲',
 
     whichDrone: '哪一台是你的無人機？',
@@ -46,7 +45,6 @@ export const STRINGS = {
     c4: '<strong>記住停止鍵在哪裡。</strong>紅色的「馬上停」按鈕和空白鍵都會立刻關掉馬達。飛之前先按一次，讓你的手記住位置。',
 
     needChrome: '<strong>這個瀏覽器不能連藍牙。</strong>請用 Chrome 或 Edge。Safari 和 Firefox 沒有支援 Web Bluetooth，沒辦法跟無人機說話。',
-    macNote: '<strong>瀏覽器讀不到藍牙 MAC 位址</strong>，這是規定，不是壞掉。所以請自己把遙控器上顯示的位址打進去，這樣就分得出哪一台是哪一台。',
 
     blocks: {
       takeoff: ['起飛', '慢慢升起來，停在空中'],
@@ -77,7 +75,6 @@ export const STRINGS = {
 
   en: {
     title1: 'Paper ', title2: 'Flight Club',
-    sub: 'Snap the bricks together. Watch real Python appear beside them. Then make a real drone do exactly what you wrote — even when that is not what you meant.',
     age: 'Ages 8–12',
 
     whichDrone: 'Which drone is yours?',
@@ -116,7 +113,6 @@ export const STRINGS = {
     c4: '<strong>Know your stop.</strong> The red Stop now button and the spacebar both cut the motors instantly. Press it once before you fly, so your hands know where it is.',
 
     needChrome: '<strong>This browser cannot use Bluetooth.</strong> Please use Chrome or Edge. Safari and Firefox do not implement Web Bluetooth and cannot talk to the drone.',
-    macNote: '<strong>Browsers are not allowed to read a Bluetooth MAC address</strong> — that is a rule, not a fault. So type in the address your controller shows and you will always know which drone is which.',
 
     blocks: {
       takeoff: ['Take off', 'rise gently and hover'],
