@@ -12,6 +12,7 @@ import { BLOCKS } from '../js/bricks.js';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const ui = fs.readFileSync(path.join(root, 'js/ui.js'), 'utf8');
+const css = fs.readFileSync(path.join(root, 'css/paper.css'), 'utf8');
 const langs = Object.keys(STRINGS);
 
 test('every element ui.js reaches for exists in the page', () => {
@@ -71,4 +72,35 @@ test('every file the page and the UI reference exists', () => {
 
 test('the page declares Traditional Chinese as its language', () => {
   assert.match(html, /<html lang="zh-TW">/);
+});
+
+// A grid container splits *every* child into a cell, bare text nodes included.
+// Setting innerHTML of mixed content ("<strong>x</strong> then text") on one
+// therefore throws the trailing text into the next row's first column — which
+// on a "30px 1fr" checklist renders one character per line.
+test('translated HTML never lands directly on a grid container', () => {
+  const gridded = new Set();
+  for (const [, selectors] of css.matchAll(/([^{}]+)\{[^}]*grid-template-columns[^}]*\}/g)) {
+    for (const sel of selectors.split(',')) {
+      const last = sel.trim().split(/\s+/).pop();
+      if (last) gridded.add(last);
+    }
+  }
+  assert.ok(gridded.size > 0, 'expected the stylesheet to define grid columns somewhere');
+
+  for (const [, tag, attrs] of html.matchAll(/<(\w+)([^>]*data-i-html[^>]*)>/g)) {
+    const classes = (attrs.match(/class="([^"]*)"/)?.[1] || '').split(/\s+/).filter(Boolean);
+    const targets = [tag, ...classes.map((c) => '.' + c)];
+    for (const t of targets) {
+      assert.ok(!gridded.has(t), `data-i-html sits on <${tag}> which "${t}" makes a grid container — wrap the content in a child element`);
+    }
+  }
+});
+
+test('every checklist step holds its text in a single wrapper', () => {
+  const items = [...html.matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => m[1].trim());
+  assert.ok(items.length >= 4, 'expected the pre-flight checklist');
+  for (const inner of items) {
+    assert.match(inner, /^<span [^>]*><\/span>$/, `checklist item must be one span, got: ${inner}`);
+  }
 });
