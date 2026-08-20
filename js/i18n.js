@@ -10,6 +10,7 @@ export const STRINGS = {
     age: '8–12 歲',
 
     whichDrone: '哪一台是你的無人機？',
+    oneAtATime: '<strong>一次只能有一個東西連著無人機。</strong>這個網頁連上的時候，遙控器就找不到它，按起飛也不會有反應。要用遙控器飛，先按「中斷連線」或關掉這個分頁。',
     connect: '連線', disconnect: '中斷連線', addDrone: '新增一台',
     droneName: '幫它取個名字', noDrones: '還沒有配對過的無人機，按「新增一台」開始。',
     forget: '移除', renameHint: '點名字就可以改',
@@ -29,9 +30,10 @@ export const STRINGS = {
 
     saysTitle: '無人機說…', howTitle: '現在狀況', notConnected: '還沒連上任何一台無人機。',
     sBatt: '電量', sBattSub: '滿電大約可以飛六次',
-    sFlat: '有放平嗎？', sFlatSub: '傾斜越小越好', sYes: '有', sNo: '沒有',
+    sFlat: '有放平嗎？', sFlatSub: '放歪了就不會乖乖飛', sYes: '有', sNo: '沒有',
     sBlue: '藍燈亮了嗎？', sBlueSub: '代表它知道哪邊是上面',
     sProp: '螺旋槳', sPropSub: '測試程式的時候先拆下來', sCheck: '檢查！',
+    sTap: '點一下確認', sOk: '好了',
     sTilt: '傾斜',
 
     manualTitle: '用鍵盤手動飛',
@@ -78,6 +80,7 @@ export const STRINGS = {
     age: 'Ages 8–12',
 
     whichDrone: 'Which drone is yours?',
+    oneAtATime: '<strong>Only one thing can be connected to the drone at a time.</strong> While this page is connected the controller cannot find it, and pressing take off does nothing. To fly with the controller, press Disconnect or close this tab first.',
     connect: 'Connect', disconnect: 'Disconnect', addDrone: 'Add a drone',
     droneName: 'give it a name', noDrones: 'No drones paired yet — press “Add a drone”.',
     forget: 'Remove', renameHint: 'tap the name to change it',
@@ -97,9 +100,10 @@ export const STRINGS = {
 
     saysTitle: 'Your drone says…', howTitle: "How it's doing", notConnected: 'No drone connected yet.',
     sBatt: 'Battery', sBattSub: 'a full pack is about six flights',
-    sFlat: 'Sitting flat?', sFlatSub: 'the less tilt the better', sYes: 'Yes', sNo: 'No',
+    sFlat: 'Sitting flat?', sFlatSub: 'tilted, and it will not fly straight', sYes: 'Yes', sNo: 'No',
     sBlue: 'Blue light on?', sBlueSub: 'means it knows which way is up',
     sProp: 'Propellers', sPropSub: 'take them off while you test your code', sCheck: 'Check!',
+    sTap: 'tap to confirm', sOk: 'Done',
     sTilt: 'Tilt',
 
     manualTitle: 'Fly it by keyboard',

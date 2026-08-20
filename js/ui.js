@@ -71,6 +71,8 @@ function applyLang(next) {
   $('#lang-en').setAttribute('aria-pressed', String(lang === 'en'));
   logEl.textContent = '';
   log(d.logReady);
+  paintConfirm('blue', $('#r-blue'), $('#v-blue'));
+  paintConfirm('prop', $('#r-prop'), $('#v-prop'));
   renderAll();
   paintLink();
 }
@@ -555,8 +557,33 @@ $('#btn-add').addEventListener('click', () => connectTo({}));
 
 /* ── telemetry → plain words ───────────────────────────────────────── */
 
-const trim = { roll: 0, pitch: 0 };
-let trimmed = false;
+// Two of the four pre-flight checks cannot be read over Bluetooth — the blue
+// calibration LED and whether the propellers are off — so a child confirms
+// them by eye. They reset whenever a drone connects, so every session starts
+// with an honest, unconfirmed checklist.
+const LEVEL_LIMIT_DEG = 15;
+const confirmed = { blue: false, prop: false };
+
+function paintConfirm(key, row, val) {
+  const on = confirmed[key];
+  row.className = 'row ask ' + (on ? 'good' : 'warn');
+  row.setAttribute('aria-pressed', String(on));
+  val.textContent = on ? T().sOk : T().sTap;
+}
+
+function resetConfirmations() {
+  confirmed.blue = false;
+  confirmed.prop = false;
+  paintConfirm('blue', $('#r-blue'), $('#v-blue'));
+  paintConfirm('prop', $('#r-prop'), $('#v-prop'));
+}
+
+for (const [key, id, vid] of [['blue', '#r-blue', '#v-blue'], ['prop', '#r-prop', '#v-prop']]) {
+  $(id).addEventListener('click', () => {
+    confirmed[key] = !confirmed[key];
+    paintConfirm(key, $(id), $(vid));
+  });
+}
 
 function paintLink() {
   const flag = $('#flag-link');
@@ -574,7 +601,7 @@ drone.addEventListener('connected', (e) => {
   const { id, name } = e.detail || {};
   activeId = id || null;
   roster.remember({ id, name });
-  trimmed = false;
+  resetConfirmations();
   renderDrones();
   paintLink();
   log(`${roster.label(roster.get(activeId))} — ${T().ready}`);
@@ -593,10 +620,6 @@ drone.addEventListener('error', (e) => log(String(e.detail?.message || e.detail)
 
 drone.addEventListener('telemetry', (e) => {
   const t = e.detail;
-  // The very first frame becomes the level reference: this airframe reads a
-  // constant few degrees of roll at rest, which is mounting offset, not tilt.
-  if (!trimmed) { trim.roll = t.roll; trim.pitch = t.pitch; trimmed = true; }
-
   const v = t.battery;
   $('#v-batt').textContent = `${v.toFixed(2)} V`;
   const pct = clamp(((v - 3.3) / (4.2 - 3.3)) * 100, 0, 100);
@@ -608,12 +631,13 @@ drone.addEventListener('telemetry', (e) => {
   battFlag.className = 'flag ' + (v < 3.6 ? 'hot' : 'ok');
   battFlag.querySelector('.n').textContent = `${v.toFixed(2)} V`;
 
-  const tilt = Math.max(Math.abs(t.roll - trim.roll), Math.abs(t.pitch - trim.pitch));
-  $('#v-tilt').textContent = tilt < 10 ? T().sYes : `${tilt.toFixed(0)}°`;
-  $('#r-flat').className = 'row ' + (tilt < 10 ? 'good' : 'warn');
-
-  // Calibration state is not in the telemetry frame — it is a physical check.
-  $('#v-blue').textContent = T().sCheck;
+  // Absolute tilt, deliberately not zeroed against the first frame: a drone
+  // resting on a book must fail this, and it cannot if "level" is redefined
+  // as however it happened to be sitting when it connected.
+  const tilt = Math.max(Math.abs(t.roll), Math.abs(t.pitch));
+  const flat = tilt < LEVEL_LIMIT_DEG;
+  $('#v-tilt').textContent = flat ? T().sYes : `${tilt.toFixed(0)}°`;
+  $('#r-flat').className = 'row ' + (flat ? 'good' : 'warn');
 });
 
 /* ── keyboard flying ───────────────────────────────────────────────── */
@@ -673,5 +697,6 @@ if (!Drone.supported) {
 }
 
 applyLang(DEFAULT_LANG);
+resetConfirmations();
 renderDrones();
 paintLink();

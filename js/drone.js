@@ -6,6 +6,20 @@ import {
 const TX_HZ = 20;
 const TX_PERIOD = 1000 / TX_HZ;
 
+// Matching on the advertised service is what actually finds the drone.
+// A name filter alone is not enough: macOS caches a device's GAP name
+// (this airframe caches as "ESP32") and Chrome filters against that cached
+// name, not the "pyDrone" the drone puts in every advertisement — so a
+// namePrefix filter silently hides the drone from the picker. The service
+// UUID is in the advertisement itself and cannot go stale. The name filters
+// stay as a fallback for firmware that advertises no service UUID; Chrome
+// ORs the entries, so a device matching any one of them is offered.
+export const DISCOVERY_FILTERS = [
+  { services: [NUS_SERVICE] },
+  { namePrefix: 'pyDrone' },
+  { namePrefix: 'ESP32' },
+];
+
 // The drone only answers when polled, so the transmit loop doubles as the
 // link's heartbeat: stop sending and it stops hearing us.
 export class Drone extends EventTarget {
@@ -71,7 +85,7 @@ export class Drone extends EventTarget {
       device = await navigator.bluetooth.requestDevice(
         anyDevice
           ? { acceptAllDevices: true, optionalServices: [NUS_SERVICE] }
-          : { filters: [{ namePrefix: 'pyDrone' }], optionalServices: [NUS_SERVICE] }
+          : { filters: DISCOVERY_FILTERS, optionalServices: [NUS_SERVICE] }
       );
     }
 

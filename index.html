@@ -65,6 +65,7 @@
         <button class="btn sm" id="btn-add"><svg class="ic"><use href="#i-plus"/></svg> <span data-i="addDrone"></span></button>
       </div>
       <div class="drones" id="drones"></div>
+      <p class="note" data-i-html="oneAtATime"></p>
     </div>
   </section>
 
@@ -154,16 +155,16 @@
             <span class="lbl"><span data-i="sFlat"></span><em data-i="sFlatSub"></em></span>
             <span class="val" id="v-tilt">—</span>
           </div>
-          <div class="row" id="r-blue">
+          <button type="button" class="row ask" id="r-blue" aria-pressed="false">
             <span class="ico"><svg class="ic xl"><use href="#i-bulb"/></svg></span>
             <span class="lbl"><span data-i="sBlue"></span><em data-i="sBlueSub"></em></span>
             <span class="val" id="v-blue">—</span>
-          </div>
-          <div class="row warn">
+          </button>
+          <button type="button" class="row ask" id="r-prop" aria-pressed="false">
             <span class="ico"><svg class="ic xl"><use href="#i-rotate"/></svg></span>
             <span class="lbl"><span data-i="sProp"></span><em data-i="sPropSub"></em></span>
-            <span class="val" data-i="sCheck"></span>
-          </div>
+            <span class="val" id="v-prop">—</span>
+          </button>
         </div>
       </div>
     </section>

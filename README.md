@@ -92,6 +92,34 @@ Buttons: `24` take off · `72` land · `40` aux · `136` emergency stop.
 The drone is **poll-response**: it sends nothing until you send a frame, so the
 20 Hz transmit loop doubles as the link heartbeat.
 
+## One connection at a time
+
+**The drone accepts a single BLE connection, and stops advertising while it is
+held.** Measured on the hardware: advertising `pyDrone` when idle, invisible to
+every scanner while one central is connected, advertising again within seconds
+of that central letting go.
+
+The practical consequence is that **this page and the physical pyController are
+mutually exclusive**. While a browser tab is connected, the controller cannot
+find the drone, so its take-off button does nothing — no error, no LED change,
+just silence. Nothing needs configuring on the controller; it simply never sees
+a drone to talk to. Press Disconnect, or close the tab, and the controller
+works again.
+
+The same applies to a second browser tab, a second laptop, or a diagnostic
+script left running.
+
+## Finding the drone
+
+Discovery filters on the **advertised service UUID**, not only the name.
+
+macOS caches a peripheral's GAP name and Chrome filters against that cached
+value. This airframe caches as `ESP32` while advertising `pyDrone` in every
+packet, so a `namePrefix: 'pyDrone'` filter matched nothing and the drone never
+appeared in Chrome's picker. The service UUID lives in the advertisement itself
+and cannot go stale, so it is the reliable match. Name prefixes are kept as a
+fallback for firmware that advertises no service UUID.
+
 ## Picking a drone
 
 Every pyDrone advertises the same BLE name, so Chrome's picker shows
@@ -124,6 +152,14 @@ Learned on real hardware, and repeated in the page in child-friendly words:
   survives a good calibration, so the first telemetry frame is taken as the
   level reference.
 - The firmware cuts motors itself past **60°** of tilt.
+- **The level check must be absolute.** An earlier version zeroed roll and pitch
+  against the first telemetry frame, to cancel the IMU mounting offset. That
+  redefined "level" as however the drone happened to be sitting when it
+  connected, so a drone resting on a book reported itself flat. Tilt is now
+  measured absolutely against a 15° limit.
+- **Two pre-flight checks cannot be read over Bluetooth** — the blue calibration
+  LED and whether the propellers are off. They are confirmed by tapping, and
+  reset on every connect, rather than being permanently-red decoration.
 
 ## Failsafes
 
